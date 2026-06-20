@@ -1,12 +1,12 @@
 # Yeaster — Overview
 
-Yeaster is an **autonomous BNB Smart Chain momentum trading agent**. It watches the
-market, reasons in distinct internal passes, sizes and places its own trades behind
-a non‑bypassable safety firewall, and records every decision in a tamper‑evident
-proof ledger — funds held self‑custodially in a single wallet.
+Yeaster is a **self-custodial BNB Smart Chain momentum agent**. It hunts the tape,
+reasons through ordered internal passes, sizes and fires its own trades behind a
+non-bypassable firewall, and seals every decision into a tamper-evident proof
+ledger — keys and funds held in a single wallet it controls.
 
-This folder is the canonical technical documentation. It describes the **system as
-it is today**. When docs and code disagree, the **code wins**.
+This folder is the engineering reference. It documents the **system as it runs
+today**; where these pages and the code ever diverge, the code is authoritative.
 
 ## Where to start
 
@@ -18,17 +18,22 @@ it is today**. When docs and code disagree, the **code wins**.
 
 ## Design philosophy
 
-- **One agent, orchestrated stages.** A single mind reasons in sequential passes
-  (`screen → grade → vet → commit`) — not a roster of agents.
-- **Policy proposes, rails dispose.** The LLM‑backed passes only *select within a
-  safe shortlist*; deterministic rails own sizing, safety, and kill‑switches. An
-  experimental or AI decision‑maker can never place an unsafe trade or spend real funds.
-- **Evidence honesty.** Scores carry *coverage* (how much real data backed them), and
-  **safety is a separate, never‑subtracted axis** — an unverifiable token is not
-  wrongly treated as unsafe (the "SIREN" lesson).
-- **Capital preservation first.** Wide‑but‑real stops, drawdown brakes, "do nothing"
-  as a valid outcome.
-- **Self‑custody.** Execution rides Trust Wallet; the agent holds its own keys.
+- **One mind, fixed stages.** A single reasoning process advances through ordered
+  passes (`screen → grade → vet → commit`) — never a committee of agents trading
+  messages. Auditable in order, impossible to deadlock.
+- **Smarts on top, hard rails underneath.** The LLM‑backed passes only *choose from a
+  pre‑vetted shortlist*. Sizing, safety, and the kill‑switches live in deterministic
+  code the model cannot reach or override — so even an experimental decision‑maker
+  cannot place an unsafe trade or move real funds.
+- **Honest about danger.** Every score carries its *coverage* (how much real data
+  backed it), and scam/honeypot risk rides a **separate axis with zero weight in the
+  grade** — it can veto a trade, but it can never quietly poison a good token we
+  simply couldn't verify (the "SIREN" lesson, hunted and killed).
+- **It would rather hold cash than a bad bet.** Wide‑but‑real stops, drawdown brakes
+  that shrink the agent as it loses, and sitting flat as a first‑class outcome — a
+  zero‑trade day is a win, not a miss.
+- **It holds its own keys.** Execution rides Trust Wallet; custody never leaves the
+  agent's wallet.
 
 ## What it can do today
 

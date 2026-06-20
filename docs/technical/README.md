@@ -1,28 +1,30 @@
 # Yeaster — Technical Documentation
 
-The canonical, product‑facing documentation for **Yeaster**, an autonomous BNB
-Smart Chain momentum trading agent. It describes the system **as it is today**.
+This is the engineering reference for **Yeaster**, the self-custodial BNB Smart
+Chain momentum agent. It documents the system **as it actually runs today** — if a
+doc and the code ever disagree, trust the code.
 
-## Document map
+## Read in this order
 
-| Document | Audience | Contents |
-|---|---|---|
-| [`overview.md`](./overview.md) | Judges / PM / everyone | Purpose, design philosophy, capabilities, what it does *not* do, glossary |
-| [`architecture.md`](./architecture.md) | Engineers | screen→grade→vet→commit brain, firewall, execution, proof chain, runtime, API, skills, web |
-| [`configuration.md`](./configuration.md) | Engineers / operators | `YST_` knobs, credentials, the mainnet gate, the preset, the universe, backends |
-| [`operations.md`](./operations.md) | Operators | install, run, drive, test, go live safely, observability |
+1. **[`overview.md`](./overview.md)** — what Yeaster is, the principles it's built on,
+   what it can and can't do. Start here whether you're a judge, a PM, or an engineer.
+2. **[`architecture.md`](./architecture.md)** — the `screen → grade → vet → commit`
+   brain, the firewall, execution, the proof ledger, the runtime daemon, the API,
+   the skills, and the web control room.
+3. **[`configuration.md`](./configuration.md)** — the `YST_` knobs, third-party
+   credentials, the mainnet double-gate, the Momentum preset, the 148-token universe,
+   and the backend matrix.
+4. **[`operations.md`](./operations.md)** — install, run, drive it, test it, and take
+   it live safely; observability.
 
-Also: **[`../../skills/`](../../skills/)** (Track‑2 strategy skills) and
-`../AGENTS.md` (build ledger).
+Also worth a look: **[`../../skills/`](../../skills/)** for the Track-2 strategy
+skills, and `../AGENTS.md` for the build ledger.
 
-## A note on naming
+## Naming & provenance
 
-The brand is **Yeaster**; the codebase matches it — internal identifiers, package
-modules, and env vars use a `yeaster*` / `YST_*` prefix (e.g. `YeasterGuard`,
-`YST_MAINNET`, the proof key `commit_record`). It shares **no** identifiers with
-any predecessor. Third‑party prefixes (`CMC_`, `TWAK_`, `OPENAI_`, `BSC_`, …) are
-intentionally kept — they authenticate to those services.
-
-## Source‑of‑truth hierarchy
-
-When these docs and the code disagree, the **code wins**.
+Everything is branded **Yeaster**, top to bottom. Internal identifiers, package
+modules, and environment variables carry a `yeaster*` / `YST_*` prefix —
+`YeasterGuard`, `YST_MAINNET`, the proof record key `commit_record`. The codebase
+shares **no identifiers with any predecessor**: it is audit-clean by design.
+Third-party prefixes (`CMC_`, `TWAK_`, `OPENAI_`, `BSC_`, …) are kept deliberately —
+those authenticate to the services they name.

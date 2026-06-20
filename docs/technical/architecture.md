@@ -1,8 +1,8 @@
 # Yeaster — Architecture
 
-The unit of work is a **tick**: `observe → reason → (maybe) act → record`. One
-agent reasons in sequential passes; deterministic rails own everything that can
-lose money.
+Yeaster runs in **ticks** — one tick is a single sweep of `observe → reason →
+(maybe) strike → record`. A single agent walks the passes in order; deterministic
+rails own everything that can lose money.
 
 ```
  THE MARKET ─▶ SCREEN ─▶ GRADE ─▶ VET ─▶ COMMIT ─▶ GUARD ─▶ EXECUTE ─▶ PROOF
