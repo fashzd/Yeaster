@@ -1,0 +1,180 @@
+{
+  "project": "Yeaster",
+  "track": "BNB HACK \u2014 Strategy Skills (Track 2)",
+  "invoke": "POST /api/skills/{unique_name}  body {\"parameters\": {...}}  \u00b7  discover: GET /api/skills",
+  "count": 5,
+  "skills": [
+    {
+      "unique_name": "yeaster_conviction_grader",
+      "description": "Grade a token across multiple signal dimensions into one coverage-weighted composite [-1..1], with a SEPARATE zero-weight safety axis (the SIREN fix). Returns the composite, evidence depth (coverage), per-dimension breakdown, and safety.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Token symbol, e.g. CAKE"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional detector tags (kind routing)"
+          },
+          "posture": {
+            "type": "string",
+            "enum": [
+              "hunt",
+              "selective",
+              "stand_down"
+            ]
+          }
+        }
+      },
+      "cost": "high",
+      "tags": [
+        "scoring",
+        "conviction",
+        "momentum"
+      ]
+    },
+    {
+      "unique_name": "yeaster_momentum_screener",
+      "description": "Scout a token universe for momentum candidates by fusing independent detectors (relative strength, breakout, accumulation, volume surge, trending runner, social scanner). Returns ranked candidates with cross-source agreement tags.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "rest",
+              "mcp",
+              "mock"
+            ]
+          },
+          "universe": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "detectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "cost": "medium",
+      "tags": [
+        "discovery",
+        "screening",
+        "momentum"
+      ]
+    },
+    {
+      "unique_name": "yeaster_trap_vetter",
+      "description": "Adversarial safety check on a token: hard-blocks genuine rug/scam signals (honeypot, punitive tax, unlocked liquidity, extreme whale concentration) and returns a CLEAR/BLOCK verdict with the token-quality read.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "posture": {
+            "type": "string"
+          }
+        }
+      },
+      "cost": "medium",
+      "tags": [
+        "safety",
+        "risk",
+        "trap-detection"
+      ]
+    },
+    {
+      "unique_name": "yeaster_bracket_planner",
+      "description": "Plan native exit brackets for a long entry: stop-loss, take-profit and trailing stop using the finalized let-winners-run calibration (default 8% / 16% / 3%).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "entry_price"
+        ],
+        "properties": {
+          "entry_price": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "stop_pct": {
+            "type": "number"
+          },
+          "tp_pct": {
+            "type": "number"
+          },
+          "trailing_pct": {
+            "type": "number"
+          }
+        }
+      },
+      "cost": "low",
+      "tags": [
+        "risk",
+        "exits",
+        "execution"
+      ]
+    },
+    {
+      "unique_name": "yeaster_risk_sizer",
+      "description": "Size a position from conviction, equity and drawdown using R-based risk (0.7%R / 3.5% stop divisor) with drawdown brakes (halve at 9%, halt at 15%) and a 30% per-name cap. Returns the portfolio fraction + notional.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "conviction",
+          "equity_usd"
+        ],
+        "properties": {
+          "conviction": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "equity_usd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "drawdown_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "cost": "low",
+      "tags": [
+        "risk",
+        "sizing",
+        "position"
+      ]
+    }
+  ]
+}

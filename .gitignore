@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Env & secrets
+.env
+.env.local
+
+# Runtime artifacts
+/data/**
+!/data/.gitkeep
+
+# Node / Next
+web/node_modules/
+web/.next/
+web/out/
+web/.turbo/
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# Internal working docs — NOT committed (session log + win plan)
+/LOG.md
+/todolist.md
