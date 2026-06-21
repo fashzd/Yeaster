@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ YEASTER
+# 💧 YEASTER
 
 ### A self-custodial momentum predator for the BNB Smart Chain — it hunts, it reasons, it strikes, and it leaves a receipt for every move.
 
