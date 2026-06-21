@@ -20,13 +20,13 @@ def test_manifest_has_schemas():
         assert m["cost"] in ("low", "medium", "high")
 
 
-def test_bracket_planner_uses_8_16_calibration():
+def test_bracket_planner_uses_preset_calibration():
     out = skills.invoke("yeaster_bracket_planner", {"entry_price": 100.0})
     assert out["ok"]
     d = out["data"]
     assert d["stop_price"] == 92.0          # 8% stop
-    assert d["take_profit_price"] == 116.0  # 16% target
-    assert d["risk_reward"] == 2.0
+    assert d["take_profit_price"] == 140.0  # 40% wide backstop (re-tuned)
+    assert d["risk_reward"] == 5.0          # (140-100)/(100-92)
 
 
 def test_risk_sizer_rails_and_halt():

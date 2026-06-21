@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from yeaster.core.settings import get_settings
+from yeaster.core.universe import DEFAULT_RESERVE
 from yeaster.execution.models import (
     Automation,
     AutomationKind,
@@ -31,10 +32,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _trade_chain_id() -> int:
+    """The chain the live position actually sits on — mainnet when the gate is
+    open, else testnet. Brackets must match it or the CLI rejects the chain."""
+    return 56 if get_settings().mainnet_unlocked else 97
+
+
 def build_bracket_specs(symbol: str, qty: float, stop_price: float, tp_price: float,
-                        reserve: str = "USDC", expires_at: Optional[str] = None) -> dict[str, AutomationSpec]:
+                        reserve: str = DEFAULT_RESERVE, expires_at: Optional[str] = None) -> dict[str, AutomationSpec]:
     """Stop (sell below) + take-profit (sell above) legs for a long position."""
-    common = dict(from_asset=symbol, to_asset=reserve, amount=qty,
+    common = dict(from_asset=symbol, to_asset=reserve, amount=qty, chain_id=_trade_chain_id(),
                   kind=AutomationKind.LIMIT, max_runs=1, expires_at=expires_at, symbol=symbol)
     return {
         "stop": AutomationSpec(price_usd=stop_price, condition="below", purpose="stop", **common),
@@ -79,10 +86,26 @@ def _cli(args: list[str]) -> dict:
         return {"raw": proc.stdout.strip()}
 
 
+def _tok_arg(symbol: str, chain_id: int) -> str:
+    """Resolve a token to what the CLI needs to EXECUTE: the contract address on
+    mainnet, else the symbol. A bracket stored as the bare symbol 'CAKE' makes the
+    watcher fail with 'Unknown token: CAKE on bsc' when it fires — it must be the
+    contract, exactly like a swap."""
+    if chain_id == 56:
+        try:
+            from yeaster.core.addresses import token_arg
+            return token_arg(symbol)
+        except Exception:
+            return symbol
+    return symbol
+
+
 def place(spec: AutomationSpec, backend: str = "auto") -> Automation:
     if resolve_backend(backend) == "cli":
         chain = "bsc" if spec.chain_id != 97 else "bsc-testnet"
-        args = ["automate", "add", "--from", spec.from_asset, "--to", spec.to_asset,
+        from_arg = _tok_arg(spec.from_asset, spec.chain_id)
+        to_arg = _tok_arg(spec.to_asset, spec.chain_id)
+        args = ["automate", "add", "--from", from_arg, "--to", to_arg,
                 "--chain", chain, "--amount", str(spec.amount)]
         if spec.price_usd:
             args += ["--price", str(spec.price_usd)]
@@ -134,3 +157,73 @@ def cancel(automation_id: str, backend: str = "auto") -> bool:
             changed = True
     _save(rows)
     return changed
+
+
+def _cli_list_raw() -> list[dict]:
+    """Raw CLI automation rows (camelCase: id/fromToken/toToken/...). The typed
+    ``list_automations`` can't parse these, so cleanup operates on the raw dicts."""
+    try:
+        raw = _cli(["automate", "list", "--json"])
+    except Exception:
+        return []
+    rows = raw if isinstance(raw, list) else (raw.get("automations") or raw.get("data") or [])
+    return [r for r in rows if isinstance(r, dict)]
+
+
+def _tracked_keys(symbols) -> set[str]:
+    """Match keys for tracked positions: their symbols AND resolved contracts
+    (the CLI stores a leg's ``fromToken`` as either a symbol or a contract)."""
+    keys = {str(s).upper() for s in symbols}
+    for s in symbols:
+        try:
+            from yeaster.core.addresses import token_arg
+            keys.add(str(token_arg(s)).lower())
+        except Exception:
+            pass
+    return keys
+
+
+def _is_tracked(from_token, keys: set[str]) -> bool:
+    ft = str(from_token or "")
+    return ft.upper() in keys or ft.lower() in keys
+
+
+def cancel_all(backend: str = "auto") -> int:
+    """Cancel EVERY active automation. Returns the count cancelled."""
+    if resolve_backend(backend) == "cli":
+        n = 0
+        for r in _cli_list_raw():
+            if r.get("id") and cancel(r["id"], "cli"):
+                n += 1
+        return n
+    rows = _load()
+    n = 0
+    for r in rows:
+        if r.get("status", "ACTIVE") == "ACTIVE":
+            r["status"] = AutomationStatus.CANCELLED.value
+            n += 1
+    _save(rows)
+    return n
+
+
+def cancel_orphans(tracked_symbols, backend: str = "auto") -> int:
+    """Cancel automations NOT tied to a currently-tracked position (orphans).
+    Legit stop/TP brackets on held positions are kept. Returns the count cancelled."""
+    keys = _tracked_keys(tracked_symbols)
+    if resolve_backend(backend) == "cli":
+        n = 0
+        for r in _cli_list_raw():
+            if r.get("id") and not _is_tracked(r.get("fromToken"), keys):
+                if cancel(r["id"], "cli"):
+                    n += 1
+        return n
+    rows = _load()
+    n = 0
+    for r in rows:
+        if r.get("status", "ACTIVE") != "ACTIVE":
+            continue
+        if not _is_tracked(r.get("from_asset") or r.get("symbol"), keys):
+            r["status"] = AutomationStatus.CANCELLED.value
+            n += 1
+    _save(rows)
+    return n

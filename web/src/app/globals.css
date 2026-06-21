@@ -142,6 +142,21 @@ body {
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
+/* Fun blinking blue "live link" dot next to the online status. */
+.blink-blue {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--aqua);
+  box-shadow: 0 0 8px var(--aqua);
+  animation: blink-blue 1.1s ease-in-out infinite;
+}
+@keyframes blink-blue {
+  0%, 100% { opacity: 1; box-shadow: 0 0 9px var(--aqua); }
+  50%      { opacity: 0.2; box-shadow: 0 0 2px var(--aqua); }
+}
+
 .text-soft { color: var(--ink-soft); }
 .text-mute { color: var(--ink-mute); }
 

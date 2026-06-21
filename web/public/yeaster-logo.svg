@@ -1,0 +1,37 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="yst-drop" x1="56" y1="40" x2="200" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34e7e4"/>
+      <stop offset="0.55" stop-color="#8b7bff"/>
+      <stop offset="1" stop-color="#ff6ad5"/>
+    </linearGradient>
+    <radialGradient id="yst-glow" cx="0.5" cy="0.42" r="0.62">
+      <stop offset="0" stop-color="#34e7e4" stop-opacity="0.45"/>
+      <stop offset="0.6" stop-color="#8b7bff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#8b7bff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="yst-gloss" x1="92" y1="92" x2="120" y2="172" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- soft ambient glow -->
+  <circle cx="128" cy="150" r="104" fill="url(#yst-glow)"/>
+
+  <!-- the droplet -->
+  <path d="M128 28 C128 28 196 118 196 162 A68 68 0 1 1 60 162 C60 118 128 28 128 28 Z"
+        fill="url(#yst-drop)"/>
+
+  <!-- inner gloss rim -->
+  <path d="M128 28 C128 28 196 118 196 162 A68 68 0 1 1 60 162 C60 118 128 28 128 28 Z"
+        fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+
+  <!-- specular highlight -->
+  <ellipse cx="104" cy="138" rx="15" ry="30" transform="rotate(-24 104 138)" fill="url(#yst-gloss)"/>
+
+  <!-- momentum spark: a rising tick inside the drop -->
+  <path d="M96 176 L120 150 L140 166 L168 126" fill="none" stroke="#ffffff" stroke-opacity="0.9"
+        stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="168" cy="126" r="6" fill="#ffffff"/>
+</svg>

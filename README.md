@@ -53,35 +53,42 @@ Yeaster runs in **ticks** — each tick is one full sweep of *observe → reason
    VET      ── adversarial trap check: honeypot / rug / scam on a SEPARATE safety axis
       │
       ▼
-   COMMIT   ── the LLM lead + critic pick ONE name (or pass) from the safe shortlist;
-      │        R-based sizing, braked by current drawdown
+   COMMIT   ── the LLM lead is the decisive factor (no silent deterministic substitute — if
+      │        it's unavailable the agent stands down); R-based sizing, braked by drawdown
       ▼
    GUARD    ── non-bypassable firewall: 7 hard checks, sells-to-cash always allowed
       │
       ▼
-   EXECUTE  ── Trust Wallet swap → native stop / take-profit / trailing brackets armed on-chain
+   EXECUTE  ── Trust Wallet swap → native stop / take-profit / volatility-scaled (ATR) trailing
+      │        brackets armed on-chain; ≥1 trade/day guaranteed by a safe compliance fallback
       │
       ▼
    PROOF    ── the whole decision + guard log + outcome sealed into the SHA-256 chain
 ```
 
-### What makes the autonomy trustworthy
+### Guardrails — and why they're built this way
+
+An autonomous agent moving real funds must **never be trusted to police itself**. So in Yeaster every limit is enforced by deterministic code the decision layer (LLM included) cannot bypass, the dangerous powers require deliberate authentication, and nothing claims protection it can't actually deliver. Concretely:
 
 1. **Bounded universe.** The agent can only ever touch the **148-token competition whitelist**. This is enforced twice — in the guard firewall *and* in the chat command path — so neither the model nor a human operator can wander off the allowed venue.
 2. **Coverage-honest grading.** Each of the 8 dimensions reports not just a score but *how much real data backed it*. The composite is weighted by that coverage, so a thinly-sourced opinion can't masquerade as conviction.
 3. **Safety can veto, never poison.** Scam/honeypot risk rides a dedicated axis with **zero weight in the composite**. It can hard-block a trade — but an unverifiable token is never silently scored as "bad." Honesty over fear.
 4. **R-based sizing with a drawdown brake.** Bets are sized in units of risk (R), and the size automatically shrinks as drawdown grows. Lose, and Yeaster gets smaller. Keep losing, and it latches into safe mode.
-5. **Let-winners-run exits, fired on-chain.** Every fill arms a native bracket — **8% stop · 16% take-profit · 3% trailing** — on the execution layer itself, so protection survives even if the brain goes offline.
-6. **PnL-aware reasoning.** Realized + unrealized PnL, win-rate, and recent exit outcomes are fed back into the commit stage. The agent *remembers how it's been doing* and trades accordingly.
-7. **Committed, locked missions.** An operator can launch a timed run (run for N hours), at which point the chat **locks**, operator overrides are rejected (HTTP 423), and the run auto-stops on schedule — abortable only via the **password kill switch**.
+5. **Let-winners-run exits, fired on-chain.** Every fill arms a native bracket — **8% stop · 40% take-profit · a volatility-scaled ATR-3× trailing stop** — on the execution layer itself, so protection survives even if the brain goes offline. The exit bracket was re-tuned on a **135-token real-OHLC backtest** (a flat % trail clipped winners on daily-bar noise; an ATR trail scales to each coin's volatility).
+6. **PnL-aware reasoning with teeth.** Realized/unrealized PnL, win-rate, a losing-streak counter, and recent exits are fed to the commit LLM, which is **explicitly instructed to act on them** (cut size or stand down on a cold streak); a deterministic size haircut backstops it after consecutive losses.
+7. **Operator controls, all from the UI.** Launch a timed run and the chat **locks** (overrides rejected, HTTP 423); the lock button doubles as a password **unlock** that cleans orphaned automations while keeping protective brackets live, and a separate **kill switch flattens every position to USDT**.
 8. **Paper by default, mainnet behind a double-gate.** No real funds move until both `YST_MAINNET=1` and `YST_MAINNET_CONFIRM=I-UNDERSTAND-LIVE-FUNDS` are set. Everything above is exercised on paper / BSC testnet first.
+9. **Approve-at-entry, so exits can never silently fail.** The instant a token is bought, the agent approves it for selling. Without this, a freshly-bought token's *first* stop / take-profit / trail would revert (no router allowance) — protection that only *looks* real. We caught this in a live test and made the approval part of entry.
+10. **Only tokens it can actually exit.** A coin is tradeable only if its on-chain contract resolves; un-resolvable tickers are dropped from the screen. The agent can never enter something it couldn't later sell.
+11. **The LLM is decisive — or it stands down.** The committing LLM is the decision-maker; if it's unavailable the agent **stands down** rather than silently falling back to a weaker rule. A separate deterministic *compliance* trade still guarantees ≥1 trade/day so the contest gate is never missed.
+12. **Authenticated kill power + manual approval.** Unlock and the **kill switch (flatten-to-USDT)** always require an operator password. Manual swaps surface a **trade intent you must approve** before anything executes — and **BNB** is allowed for manual swaps only, never an autonomous trade.
 
 ### The three sponsors, fused into one decision
 
 | Sponsor | What Yeaster pulls from it |
 |---|---|
 | **CoinMarketCap Agent Hub** | Market regime, technicals, derivatives, whale flow, sector rotation, unlock schedules, social signal, Fear & Greed, and scam/honeypot safety — fused into the grade. |
-| **Trust Wallet (TWAK)** | Self-custodial on-chain swaps + native auto-brackets (stop / TP / trailing), token-risk reads, trending. x402 micropayments wired and available. |
+| **Trust Wallet (TWAK)** | Self-custodial on-chain swaps + native auto-brackets (stop / TP / ATR trailing), token-risk reads, trending. The funded reserve is **USDT**. **x402 alpha sales:** the agent monetizes its edge — anyone can buy the daily top pick with a real on-chain USDT micropayment (`POST /api/x402/alpha`), verified on BSC before the signal unlocks. |
 | **BNB Smart Chain** | The on-chain venue. The 148-token whitelist *is* the hard universe — chain id 56. |
 
 ---
@@ -95,7 +102,7 @@ Yeaster's brain doesn't stay locked inside Yeaster. Each reasoning stage is also
 | `yeaster_conviction_grader` 🏆 | Coverage-weighted multi-dimensional grade + the separate safety axis |
 | `yeaster_momentum_screener` | Cross-source momentum candidates from the live universe |
 | `yeaster_trap_vetter` | Adversarial rug / honeypot / scam verdict |
-| `yeaster_bracket_planner` | Let-winners-run exit brackets (8% / 16% / 3%) |
+| `yeaster_bracket_planner` | Let-winners-run exit brackets (8% stop / 40% TP / ATR-3× trail) |
 | `yeaster_risk_sizer` | R-based position size with a drawdown brake |
 
 ---

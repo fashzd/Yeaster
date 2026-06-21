@@ -38,7 +38,7 @@ _NON_MOMENTUM = STABLES | PEGGED_OR_REFERENCE
 # The momentum universe the screen stage scouts (preserves whitelist order).
 UNIVERSE: tuple[str, ...] = tuple(s for s in ALLOWLIST if s not in _NON_MOMENTUM)
 
-DEFAULT_RESERVE = "USDC"
+DEFAULT_RESERVE = "USDT"   # the funded reserve in the live wallet (entries/exits route through it)
 COMPETITION_CONTRACT = _RAW.get("competition_contract")
 
 

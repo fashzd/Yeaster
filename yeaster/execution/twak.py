@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -276,6 +278,42 @@ def _cli_execute(quote: SwapQuote) -> SwapReceipt:
     )
 
 
+def _wallet_address(chain_id: int) -> str:
+    try:
+        raw = _run_cli(["wallet", "balance", "--chain", _chain_key(chain_id), "--json"])
+        return str(raw.get("address") or "")
+    except Exception:
+        return ""
+
+
+def ensure_sell_approval(symbol: str, chain_id: int) -> dict:
+    """Approve the swap router to spend ``symbol`` so later SELLS — stop-loss,
+    take-profit, the ATR trail, manual exits, and the kill-switch flatten — don't
+    revert. A freshly-bought token has no allowance; without this the FIRST sell
+    (an automation firing, or a flatten) reverts. Idempotent: no-op if already
+    approved, and a no-op off live mainnet."""
+    s = get_settings()
+    spender = s.swap_spender
+    if chain_id != 56 or not spender:
+        return {"ok": False, "skipped": True}
+    if resolve_backend("auto") != "cli":
+        return {"ok": False, "skipped": True}
+    token = _tok(symbol, chain_id)
+    key = _chain_key(chain_id)
+    try:
+        owner = _wallet_address(chain_id)
+        if owner:
+            raw = _run_cli(["erc20", "allowance", "--token", token, "--owner", owner,
+                            "--spender", spender, "--chain", key, "--json"])
+            if str(raw.get("allowance", "0")) not in ("0", ""):
+                return {"ok": True, "already_approved": True}
+        _run_cli(["erc20", "approve", "--token", token, "--spender", spender,
+                  "--amount", "unlimited", "--confirm-unlimited", "--chain", key, "--json"])
+        return {"ok": True, "approved": True}
+    except Exception as exc:  # noqa: BLE001 — never block a trade on the approval call
+        return {"ok": False, "error": str(exc)}
+
+
 def trending(limit: int = 12) -> list[dict]:
     """TWAK top trending tokens (best-effort; empty list if the CLI lacks the command)."""
     if not shutil.which(get_settings().twak_cli_bin):
@@ -294,6 +332,140 @@ def trending(limit: int = 12) -> list[dict]:
             out.append({"symbol": sym, "name": r.get("name"), "rank": r.get("rank"),
                         "category": r.get("category"), "change_24h": r.get("price_change_24h") or r.get("change")})
     return out
+
+
+# ── On-chain holdings sweep (fills the TWAK CLI's blind spot) ─────────────────
+# `twak wallet balance`/`portfolio` only report TWAK's *tracked* token set — an
+# ERC-20 the agent swapped into (or received) but that TWAK doesn't track stays
+# invisible, under-reporting the live book. The chain is the source of truth: one
+# Multicall3 `balanceOf` sweep over the resolved tradeable universe surfaces every
+# held token. Best-effort and cached so frequent wallet polls don't hammer RPC.
+
+_MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11"   # canonical, same address every chain
+_SWEEP_TTL_SECONDS = 45.0
+_sweep_cache: dict[str, tuple[float, dict]] = {}   # address -> (ts, {sym: (human_balance, value_usd|None)})
+_decimals_cache: dict[str, int] = {}
+
+
+def _universe_contracts() -> dict[str, str]:
+    """Resolved symbol→BSC-contract map of the tradeable universe (CMC-sourced, disk-cached)."""
+    from yeaster.core.addresses import _CACHE_PATH
+    try:
+        cache = json.loads(_CACHE_PATH.read_text())
+    except Exception:
+        return {}
+    return {k.upper(): v for k, v in cache.items() if isinstance(v, str) and v.startswith("0x")}
+
+
+def _word(x: int) -> str:
+    return f"{x:064x}"
+
+
+def _multicall3_balanceof(address: str, contracts: list[str]) -> dict[str, int]:
+    """One eth_call to Multicall3.aggregate3, returning raw balanceOf(address) per
+    contract as {contract_lower: int}. Returns {} on any RPC/decoding failure."""
+    from yeaster.execution.x402 import _bsc_rpc
+    owner = address.lower().replace("0x", "").rjust(64, "0")
+    inner_padded = ("70a08231" + owner).ljust(128, "0")   # balanceOf(address): 36 bytes → padded to 64
+    n = len(contracts)
+    tuple_size = 32 * 3 + 32 + 64                          # head(3 words) + bytes-len + bytes-data(36→64)
+    head = _word(0x20) + _word(n) + "".join(_word(n * 32 + i * tuple_size) for i in range(n))
+    body = "".join(
+        c.lower().replace("0x", "").rjust(64, "0")        # target
+        + _word(1)                                        # allowFailure = true
+        + _word(0x60)                                     # offset to callData within tuple
+        + _word(36)                                       # callData length
+        + inner_padded
+        for c in contracts
+    )
+    res = _bsc_rpc("eth_call", [{"to": _MULTICALL3, "data": "0x82ad56cb" + head + body}, "latest"])
+    if not res or res == "0x":
+        return {}
+    try:
+        h = res[2:]
+        arr = (int(h[0:64], 16) // 32) * 64               # hex pos of the Result[] length word
+        cnt = int(h[arr:arr + 64], 16)
+        offs = arr + 64                                   # start of the per-element offset words
+        out: dict[str, int] = {}
+        for i in range(cnt):
+            tup = offs + int(h[offs + i * 64: offs + (i + 1) * 64], 16) * 2
+            success = int(h[tup:tup + 64], 16)
+            bpos = tup + int(h[tup + 64:tup + 128], 16) * 2
+            blen = int(h[bpos:bpos + 64], 16)
+            data = h[bpos + 64: bpos + 64 + blen * 2]
+            out[contracts[i].lower()] = int(data, 16) if (success and data) else 0
+        return out
+    except (ValueError, IndexError):
+        return {}
+
+
+def _erc20_decimals(contract: str) -> int:
+    if contract.lower() in _decimals_cache:
+        return _decimals_cache[contract.lower()]
+    from yeaster.execution.x402 import _bsc_rpc
+    r = _bsc_rpc("eth_call", [{"to": contract, "data": "0x313ce567"}, "latest"])   # decimals()
+    dec = int(r, 16) if r and r != "0x" else 18
+    _decimals_cache[contract.lower()] = dec
+    return dec
+
+
+def _sweep_prices(symbols: list[str]) -> dict[str, float]:
+    """Real USD prices for swept holdings, straight from CMC. We deliberately do
+    NOT use the injected price oracle here: it can be MOCK-backed (a mock-mode tick
+    installs pseudo-prices, e.g. ~$36 for FLOKI → a 1,400-token dust bag reads as
+    $50k on the LIVE wallet). CMC is the authoritative source for the live book;
+    an un-priceable token is left unvalued rather than fabricated."""
+    key = get_settings().cmc_api_key
+    if not symbols or not key:
+        return {}
+    out: dict[str, float] = {}
+    try:
+        from yeaster.market.cmc import _rest_assets
+        for a in _rest_assets(symbols, key):
+            if a.price_usd and a.price_usd > 0:
+                out[a.symbol.upper()] = float(a.price_usd)
+    except Exception:
+        pass
+    return out
+
+
+def _merge_onchain_holdings(pf: PortfolioState, address: str, read_chain: int) -> PortfolioState:
+    """Merge any held ERC-20s the CLI omitted into the portfolio (BSC mainnet only).
+    The cache holds the *priced* rows so CMC is hit at most once per TTL, not per poll."""
+    if read_chain != 56 or not address or address == "unknown" or os.getenv("YST_WALLET_SWEEP", "1") != "1":
+        return pf
+    have = {b.symbol.upper() for b in pf.balances}
+    now = time.time()
+    cached = _sweep_cache.get(address)
+    if cached and now - cached[0] < _SWEEP_TTL_SECONDS:
+        priced = cached[1]
+    else:
+        priced = {}
+        try:
+            todo = {s: c for s, c in _universe_contracts().items() if s not in have}
+            if todo:
+                syms, contracts = list(todo), [todo[s] for s in todo]
+                raw = _multicall3_balanceof(address, contracts)
+                held = {sym: raw.get(c.lower(), 0) / 10 ** _erc20_decimals(c)
+                        for sym, c in zip(syms, contracts) if raw.get(c.lower(), 0) > 0}
+                prices = _sweep_prices(list(held))
+                for sym, bal in held.items():
+                    p = prices.get(sym)
+                    priced[sym] = (bal, round(bal * p, 4) if p else None)   # value None if un-priceable
+        except Exception:
+            priced = {}
+        _sweep_cache[address] = (now, priced)
+    fresh = {s: bv for s, bv in priced.items() if s not in have}   # never double-count a now-tracked token
+    if not fresh:
+        return pf
+    rows = list(pf.balances)
+    total = pf.total_value_usd or sum(b.value_usd or 0.0 for b in rows)
+    for sym, (bal, val) in fresh.items():
+        rows.append(TokenBalance(symbol=sym, balance=bal, value_usd=val))
+        if val:
+            total += val
+    positions = {r.symbol: round((r.value_usd or 0.0) / total, 6) for r in rows if total > 0}
+    return pf.model_copy(update={"balances": rows, "total_value_usd": round(total, 4), "positions_pct": positions})
 
 
 def _cli_portfolio(_chain_id: int) -> PortfolioState:
@@ -323,8 +495,9 @@ def _cli_portfolio(_chain_id: int) -> PortfolioState:
         rows.append(TokenBalance(symbol=sym, balance=bal, value_usd=round(val, 4)))
 
     positions = {r.symbol: round((r.value_usd or 0.0) / total, 6) for r in rows if total > 0}
-    return PortfolioState(address=address, chain_id=read_chain, native_balance=native_bal, balances=rows,
-                          total_value_usd=round(total, 4), positions_pct=positions, captured_at=_iso(_now()))
+    pf = PortfolioState(address=address, chain_id=read_chain, native_balance=native_bal, balances=rows,
+                        total_value_usd=round(total, 4), positions_pct=positions, captured_at=_iso(_now()))
+    return _merge_onchain_holdings(pf, address, read_chain)
 
 
 # ── The broker (two-step) ────────────────────────────────────────────────────

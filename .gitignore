@@ -15,6 +15,12 @@ venv/
 /data/**
 !/data/.gitkeep
 
+# Logs — never commit, anywhere
+*.log
+
+# Generated brand / pitch-deck artifacts (regenerate via scripts/make_deck.py)
+/brand/
+
 # Node / Next
 web/node_modules/
 web/.next/

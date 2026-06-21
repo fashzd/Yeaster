@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Waves, Wallet, ShieldCheck, Boxes, Link2, Power, TrendingUp, Settings, BarChart3,
-  Copy, Check, Lock, Timer, X,
+  Wallet, ShieldCheck, Boxes, Link2, Power, TrendingUp, Settings, BarChart3,
+  Copy, Check, Lock, Timer, X, GraduationCap, Coins, ArrowLeft,
 } from "lucide-react";
 import Terminal from "@/components/Terminal";
 import AgentChat from "@/components/AgentChat";
+import YeasterLogo from "@/components/YeasterLogo";
 import {
   api, type AgentStatus, type Brackets, type DaemonStatus, type Overview,
   type ProofChain, type Readiness, type Wallet as WalletT,
@@ -31,12 +32,18 @@ export default function Home() {
 
   const locked = !!daemon?.locked && !!daemon?.running;
 
+  // chat is busy-locked while a tick streams in the terminal OR the autonomous loop runs
+  const [terminalBusy, setTerminalBusy] = useState(false);
+  const agentBusy = terminalBusy || (!!daemon?.running && !locked);
+
   const refresh = useCallback(async () => {
     try {
       await api.health();
       setOnline(true);
+      const mode = live ? "live" : "paper";
+      const bookBackend = live ? "cli" : "paper";
       const [r, a, b, w, p, d] = await Promise.allSettled([
-        api.readiness(), api.agent(), api.wallet(), api.walletReal(), api.proof(), api.daemon(),
+        api.readiness(), api.agent(mode), api.wallet(bookBackend), api.walletReal(), api.proof(), api.daemon(),
       ]);
       if (r.status === "fulfilled") setReady(r.value);
       if (a.status === "fulfilled") setAgent(a.value);
@@ -45,13 +52,13 @@ export default function Home() {
       if (p.status === "fulfilled") setProof(p.value);
       if (d.status === "fulfilled") setDaemon(d.value);
     } catch { setOnline(false); }
-  }, []);
+  }, [live]);
 
   const refreshMarket = useCallback(async () => {
-    const [m, bk] = await Promise.allSettled([api.overview(), api.brackets()]);
+    const [m, bk] = await Promise.allSettled([api.overview(), api.brackets(live ? "cli" : "paper")]);
     if (m.status === "fulfilled") setMarket(m.value);
     if (bk.status === "fulfilled") setBrackets(bk.value);
-  }, []);
+  }, [live]);
 
   useEffect(() => {
     refresh(); refreshMarket();
@@ -60,14 +67,15 @@ export default function Home() {
     return () => { clearInterval(t1); clearInterval(t2); };
   }, [refresh, refreshMarket]);
 
-  // when live, the book shows the live wallet balance; else the paper book
-  const equity = (live ? realWallet?.total_value_usd : book?.total_value_usd) ?? 0;
+  // the book IS the active mode's wallet (paper store or live chain), fully separated
+  const equity = book?.total_value_usd ?? 0;
   const pnl = agent?.realized_pnl_usd ?? 0;
 
   async function toggleDaemon(force?: boolean) {
     const want = force ?? !daemon?.running;
+    // live checks every 2h (after an immediate first tick) so it isn't churning; paper stays fast for demos
     if (!want) await api.daemonStop();
-    else await api.daemonStart({ cadence_seconds: 120, cmc_backend: live ? "auto" : "mock", twak_backend: live ? "auto" : "paper" });
+    else await api.daemonStart({ cadence_seconds: live ? 7200 : 120, cmc_backend: live ? "auto" : "mock", twak_backend: live ? "auto" : "paper" });
     refresh();
   }
 
@@ -76,13 +84,21 @@ export default function Home() {
       {/* ── Header ─────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="blob blob-pill grid h-11 w-11 place-items-center"><Waves size={19} className="text-[var(--aqua)]" /></div>
+          <div className="blob blob-pill grid h-11 w-11 place-items-center" style={{ boxShadow: "0 0 18px rgba(52,231,228,0.35)" }}>
+            <YeasterLogo size={26} />
+          </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Yeaster</h1>
-            <p className="text-mute text-[11px]">autonomous BNB momentum · {agent?.commit_arm ?? "—"}</p>
+            <p className="text-mute text-[11px]">autonomous trading agent on the BNB chain</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/alpha" className="blob blob-pill flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-[var(--magenta)]" title="Buy the daily alpha (x402)">
+            <Coins size={13} /> buy alpha
+          </Link>
+          <Link href="/learn" className="blob blob-pill flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-[var(--lime)]" title="How Yeaster works">
+            <GraduationCap size={13} /> learn
+          </Link>
           <Link href="/intelligence" className="blob blob-pill flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-[var(--violet)]" title="Market Intelligence">
             <BarChart3 size={13} /> intel
           </Link>
@@ -107,6 +123,7 @@ export default function Home() {
           <div className="blob blob-pill flex items-center gap-2 px-3.5 py-2">
             <span className="pulse-dot" style={{ color: online ? "var(--pos)" : "var(--neg)" }} />
             <span className="mono text-[11px] text-soft">{online ? "online" : "offline"}</span>
+            <span className="blink-blue" title="live link" />
           </div>
         </div>
       </header>
@@ -123,25 +140,18 @@ export default function Home() {
           tone={proof?.verified ? "var(--pos)" : "var(--neg)"} />
       </section>
 
-      {locked && (
-        <div className="blob blob-pill mt-4 flex items-center justify-center gap-2 px-4 py-2.5"
-          style={{ color: "var(--rose)" }}>
-          <Lock size={13} />
-          <span className="mono text-xs">
-            committed run active · chat locked · {fmtRemain(daemon?.remaining_seconds)} left ·
-            kill switch in settings
-          </span>
-        </div>
-      )}
+      {locked && <LockCountdown remaining={daemon?.remaining_seconds} />}
 
       {/* ── Terminal + Chat side by side ───────────────────────── */}
       <section className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="h-[540px]">
           <Terminal live={live} guardEnabled={guardEnabled} runSignal={runSignal}
+            onBusy={setTerminalBusy} locked={!!daemon?.running}
+            remaining={daemon?.remaining_seconds} loops={daemon?.loops}
             onResult={() => { refresh(); refreshMarket(); }} />
         </div>
         <div className="h-[540px]">
-          <AgentChat live={live} guardEnabled={guardEnabled} locked={locked}
+          <AgentChat live={live} guardEnabled={guardEnabled} locked={locked} agentBusy={agentBusy}
             onRunCycle={() => setRunSignal((x) => x + 1)}
             onChanged={() => { refresh(); refreshMarket(); }}
             onGuard={setGuardEnabled} onMode={setLive} onAutonomy={(on) => toggleDaemon(on)} />
@@ -168,6 +178,36 @@ export default function Home() {
   );
 }
 
+function fmtClock(s?: number | null): string {
+  if (s == null) return "--:--:--";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(h)}:${p(m)}:${p(sec)}`;
+}
+
+// Isolated so its 1Hz tick only re-renders the countdown — not the whole page (kept the
+// settings modal / chat / terminal from re-rendering every second, which felt laggy).
+function LockCountdown({ remaining }: { remaining?: number | null }) {
+  const [s, setS] = useState<number | null>(remaining ?? null);
+  useEffect(() => { setS(remaining ?? null); }, [remaining]);
+  useEffect(() => {
+    const t = setInterval(() => setS((x) => (x == null ? x : Math.max(0, x - 1))), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="blob mt-4 flex flex-col items-center justify-center gap-1.5 px-4 py-5"
+      style={{ borderColor: "rgba(255,122,138,0.4)" }}>
+      <div className="flex items-center gap-2 text-[var(--rose)]">
+        <span className="pulse-dot" style={{ color: "var(--rose)" }} />
+        <Lock size={14} />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.32em]">Agent Locked · committed run</span>
+      </div>
+      <div className="mono text-5xl font-bold tabular-nums leading-none" style={{ color: "var(--rose)" }}>{fmtClock(s)}</div>
+      <div className="text-mute text-[11px]">trading unattended · chat locked · unlock / kill switch in settings (password required)</div>
+    </div>
+  );
+}
+
 function fmtRemain(s?: number | null): string {
   if (s == null) return "—";
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -189,7 +229,7 @@ function SettingsModal({ daemon, live, onClose, onChanged }:
     setBusy(true); setErr(null);
     try {
       await api.daemonStart({
-        cadence_seconds: 120, live: lockLive,
+        cadence_seconds: lockLive ? 7200 : 120, live: lockLive,
         cmc_backend: lockLive ? "auto" : "mock", twak_backend: lockLive ? "auto" : "paper",
         run_hours: hours, lock: true, kill_password: killPw || undefined,
       });
@@ -197,12 +237,24 @@ function SettingsModal({ daemon, live, onClose, onChanged }:
     } catch (e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
-  async function kill() {
+  async function unlock() {
+    // graceful: halt the loop, sweep orphaned automations, KEEP protective brackets
     setBusy(true); setErr(null);
     try {
       await api.daemonStop(stopPw || undefined);
       onChanged(); onClose();
     } catch (e) { setErr("wrong kill-switch password"); } finally { setBusy(false); }
+  }
+
+  async function killFlatten() {
+    // emergency: flatten every open position to USDT + cancel ALL automations
+    if (typeof window !== "undefined" &&
+        !window.confirm("KILL SWITCH: market-sell every open position to USDT and cancel all automations. Continue?")) return;
+    setBusy(true); setErr(null);
+    try {
+      await api.daemonKill(stopPw || undefined);
+      onChanged(); onClose();
+    } catch (e) { setErr("wrong kill-switch password / kill failed"); } finally { setBusy(false); }
   }
 
   return (
@@ -213,15 +265,27 @@ function SettingsModal({ daemon, live, onClose, onChanged }:
           <button onClick={onClose} className="text-mute"><X size={18} /></button>
         </div>
 
-        {lockedRun ? (
-          <div className="mt-5">
-            <div className="text-soft text-sm">A committed run is active — <span className="mono">{fmtRemain(daemon?.remaining_seconds)}</span> remaining. The chat is locked. Use the kill switch to halt early.</div>
-            <label className="text-mute mt-4 block text-[11px] uppercase tracking-wider">kill-switch password</label>
-            <input type="password" value={stopPw} onChange={(e) => setStopPw(e.target.value)}
-              className="mono mt-1 w-full rounded-full bg-black/30 px-4 py-2.5 text-sm text-soft outline-none" placeholder="password" />
-            <button onClick={kill} disabled={busy} className="blob blob-pill mt-4 w-full py-2.5 text-sm font-medium" style={{ color: "var(--rose)" }}>
-              <Lock size={13} className="mr-1.5 inline" /> halt autonomous run
+        {running ? (
+          <div className="mt-5 space-y-3">
+            <button onClick={onClose} className="text-mute flex items-center gap-1 text-[12px] hover:text-soft">
+              <ArrowLeft size={13} /> back to dashboard (keep the run going)
             </button>
+            {lockedRun
+              ? <div className="text-soft text-sm">Committed run active — <span className="mono">{fmtRemain(daemon?.remaining_seconds)}</span> remaining. The chat is locked.</div>
+              : <div className="text-soft text-sm">Autonomous loop running ({daemon?.loops ?? 0} loops).</div>}
+            {daemon?.last_error && <div className="text-[var(--warn)] text-xs">⚠ last alert: {daemon.last_error}</div>}
+            <div>
+              <label className="text-mute block text-[11px] uppercase tracking-wider">{lockedRun ? "kill-switch password" : "password (if locked)"}</label>
+              <input type="password" value={stopPw} onChange={(e) => setStopPw(e.target.value)}
+                className="mono mt-1 w-full rounded-full bg-black/30 px-4 py-2.5 text-sm text-soft outline-none" placeholder="password" />
+            </div>
+            <button onClick={unlock} disabled={busy} className="blob blob-pill w-full py-2.5 text-sm font-medium" style={{ color: "var(--aqua)" }}>
+              <Lock size={13} className="mr-1.5 inline" /> unlock — stop & keep positions protected
+            </button>
+            <button onClick={killFlatten} disabled={busy} className="blob blob-pill w-full py-2.5 text-sm font-bold" style={{ color: "var(--rose)" }}>
+              <X size={13} className="mr-1.5 inline" /> KILL SWITCH — flatten all to USDT
+            </button>
+            <p className="text-mute text-[11px]">Unlock halts the loop, sweeps orphaned automations, and KEEPS protective brackets on open positions. The kill switch additionally market-sells every position to USDT and cancels all automations.</p>
           </div>
         ) : (
           <div className="mt-5 space-y-4">
@@ -230,6 +294,8 @@ function SettingsModal({ daemon, live, onClose, onChanged }:
               <button onClick={() => setLockLive((v) => !v)} className="blob blob-pill mt-1.5 px-4 py-2 text-xs font-medium" style={{ color: lockLive ? "var(--rose)" : "var(--aqua)" }}>
                 {lockLive ? "● live (real funds)" : "○ paper"}
               </button>
+              {lockLive && daemon && daemon.mainnet_unlocked === false &&
+                <p className="text-[var(--warn)] mt-1 text-[11px]">⚠ mainnet gate is CLOSED on the server — live trades won't broadcast until YST_MAINNET is set there.</p>}
             </div>
             <div>
               <label className="text-mute block text-[11px] uppercase tracking-wider"><Timer size={11} className="mr-1 inline" />run for (hours)</label>
@@ -300,7 +366,7 @@ function AgentWalletBlob({ real, book, live }: { real: WalletT | null; book: Wal
   }
   return (
     <Panel icon={<Wallet size={15} className="text-[var(--lime)]" />} title="Agent Wallet · self-custody"
-      right={<span className="mono text-mute text-[10px]">{w?.backend ?? "—"}</span>}>
+      right={<span className="mono text-mute text-[10px]">{w?.backend === "cli" || w?.backend === "rest" ? "live" : w?.backend ? "paper" : "—"}</span>}>
       <div className="mb-2 flex items-baseline justify-between">
         <span className="mono text-2xl" style={{ color: "var(--lime)" }}>${(w?.total_value_usd ?? 0).toFixed(2)}</span>
         <button onClick={copy} disabled={!w?.address} className="text-mute mono flex items-center gap-1 text-[10px] hover:text-[var(--aqua)]" title="copy address">

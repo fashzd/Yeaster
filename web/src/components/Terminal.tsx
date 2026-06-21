@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Play, Loader2, Radio } from "lucide-react";
+import { Play, Loader2, Radio, Lock } from "lucide-react";
 import { streamTick, type Thought, type ThoughtStage } from "@/lib/api";
+
+function fmtClock(s?: number | null): string {
+  if (s == null) return "--:--:--";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(h)}:${p(m)}:${p(sec)}`;
+}
 
 const STAGE_COLOR: Record<string, string> = {
   regime: "var(--aqua)",
@@ -22,20 +29,33 @@ const STAGE_COLOR: Record<string, string> = {
 type Line = { stage: ThoughtStage; text: string; tone?: string };
 
 export default function Terminal({
-  live, guardEnabled, runSignal, onResult,
+  live, guardEnabled, runSignal, onResult, onBusy, locked = false, remaining, loops = 0,
 }: {
   live: boolean;
   guardEnabled: boolean;
   runSignal?: number;
   onResult?: (r: any) => void;
+  onBusy?: (b: boolean) => void;
+  locked?: boolean;            // autonomous loop running — manual ticks disabled
+  remaining?: number | null;   // committed-run seconds left (for the countdown)
+  loops?: number;
 }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [running, setRunning] = useState(false);
+  const [count, setCount] = useState<number | null>(remaining ?? null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [lines]);
+
+  useEffect(() => { onBusy?.(running); }, [running, onBusy]);
+  useEffect(() => { setCount(remaining ?? null); }, [remaining]);
+  useEffect(() => {
+    if (!locked) return;
+    const t = setInterval(() => setCount((x) => (x == null ? x : Math.max(0, x - 1))), 1000);
+    return () => clearInterval(t);
+  }, [locked]);
 
   // allow the chat ("run a cycle") to trigger a tick
   useEffect(() => {
@@ -44,7 +64,7 @@ export default function Terminal({
   }, [runSignal]);
 
   async function run() {
-    if (running) return;
+    if (running || locked) return;   // no manual ticks while the autonomous loop owns the agent
     setRunning(true);
     setLines([]);
     const body = live
@@ -77,15 +97,15 @@ export default function Terminal({
           <span className="text-mute mono text-[10px]">screen · grade · vet · commit</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-mute mono text-[10px]">{live ? "live data" : "mock · fast"}</span>
+          <span className="text-mute mono text-[10px]">{live ? "live data" : "paper · fast"}</span>
           <button
             onClick={run}
-            disabled={running}
+            disabled={running || locked}
             className="blob blob-pill flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium disabled:opacity-50"
-            style={{ color: "var(--lime)" }}
+            style={{ color: locked ? "var(--rose)" : "var(--lime)" }}
           >
-            {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-            {running ? "thinking…" : "run tick"}
+            {locked ? <Lock size={13} /> : running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            {locked ? "locked" : running ? "thinking…" : "run tick"}
           </button>
         </div>
       </div>
@@ -95,10 +115,20 @@ export default function Terminal({
         className="mono mt-4 flex-1 space-y-2 overflow-y-auto rounded-3xl bg-black/20 p-4 text-[12.5px] leading-relaxed"
         style={{ minHeight: 320 }}
       >
+        {locked && (
+          <div className="mb-2 flex items-center justify-between rounded-2xl px-3 py-1.5"
+            style={{ background: "rgba(255,122,138,0.08)" }}>
+            <span className="flex items-center gap-1.5 text-[11px] text-[var(--rose)]">
+              <Lock size={12} /> autonomous mode · manual run disabled
+            </span>
+            <span className="mono text-[11px] text-[var(--rose)]">{count != null ? fmtClock(count) : `${loops} cycles`}</span>
+          </div>
+        )}
         {lines.length === 0 && !running && (
           <p className="text-mute">
-            The agent is idle. Press <span className="text-soft">run tick</span> to watch it reason through a
-            full screen → grade → vet → commit cycle and seal a proof block.
+            {locked
+              ? "The autonomous loop is running server-side. The reasoning log appears here when you run a manual tick (disabled while locked)."
+              : <>The agent is idle. Press <span className="text-soft">run tick</span> to watch it reason through a full screen → grade → vet → commit cycle and seal a proof block.</>}
           </p>
         )}
         {lines.map((l, i) => (

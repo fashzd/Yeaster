@@ -12,6 +12,7 @@ import json
 from typing import Any, Optional
 
 from yeaster.brain import llm
+from yeaster.core.settings import get_settings
 from yeaster.core.universe import DEFAULT_RESERVE
 
 # ── deterministic rails ──────────────────────────────────────────────────────
@@ -25,13 +26,52 @@ COMPOSITE_BAR = 0.15         # det arm qualification bar
 COVERAGE_FLOOR = 0.40
 
 
+def _loss_haircut(book: Optional[dict]) -> float:
+    """Deterministic backstop to the LLM's PnL judgment: shrink size on a losing
+    streak so a cold run can't compound. (The LLM is told to react too; this guards
+    the case where it doesn't.)"""
+    cl = int((book or {}).get("consecutive_losses", 0) or 0)
+    if cl >= 5:
+        return 0.4
+    if cl >= 3:
+        return 0.6
+    return 1.0
+
+
 def size_amount_pct(conviction: float, equity: float, drawdown: float) -> Optional[float]:
     """R-based sizing → portfolio fraction, or None to stand down (hard brake)."""
     if drawdown >= DD_HALT or equity <= 0:
         return None
     risk = RISK_PER_TRADE * (0.5 if drawdown >= DD_HALFSIZE else 1.0) * max(0.2, min(1.0, conviction))
     notional = min(risk * equity / STOP_PCT, MAX_POSITION_PCT * equity)
+    # Dust floor: a sub-minimum entry is dominated by gas and brackets into two
+    # pointless on-chain dust legs — stand down instead of placing it. Lifts the
+    # whole-wallet capitalization requirement into an explicit, configurable gate.
+    try:
+        floor = get_settings().min_notional_usd
+    except Exception:
+        floor = 0.0
+    if floor > 0 and notional < floor:
+        return None
     return round(notional / equity, 4)
+
+
+def compliance_amount_pct(equity: float) -> Optional[float]:
+    """Size the mandatory ≥1/day compliance trade so the executed notional **clears
+    the contest minimum** with margin. Unlike `size_amount_pct`, this never stands
+    down below the floor — the trade is required, so it sizes UP. Returns None only
+    if the wallet genuinely can't fund the minimum (then the day can't comply)."""
+    if equity <= 0:
+        return None
+    try:
+        floor = get_settings().min_notional_usd
+    except Exception:
+        floor = 1.2
+    target = max(floor, 1.2) * 1.30        # 30% margin so it lands comfortably above the floor
+    pct = target / equity
+    if pct > 0.95:                          # not enough equity to place even the minimum
+        return None
+    return round(pct, 4)
 
 
 def _eligible(cards: list[dict]) -> list[dict]:
@@ -65,7 +105,7 @@ def arm_det_top(cards: list[dict], posture: str, equity: float, drawdown: float,
         return _decision("det_top", None, 0.0, "no candidate cleared the composite/coverage bar.",
                          equity, drawdown, considered)
     top = max(qualified, key=lambda c: c["composite"])
-    conv = max(0.0, min(1.0, (top["composite"] - COMPOSITE_BAR) / (1 - COMPOSITE_BAR) + 0.3))
+    conv = max(0.0, min(1.0, (top["composite"] - COMPOSITE_BAR) / (1 - COMPOSITE_BAR) + 0.3)) * _loss_haircut(book)
     return _decision("det_top", top["symbol"], conv,
                      f"top composite {top['composite']:+.3f} (cov {top['coverage']:.0%}, {top['kind']}).",
                      equity, drawdown, considered)
@@ -77,22 +117,30 @@ def arm_det_safety(cards: list[dict], posture: str, equity: float, drawdown: flo
     if not pool:
         return _decision("det_safety", None, 0.0, "no survivable candidate.", equity, drawdown, considered)
     best = max(pool, key=lambda c: ((c["safety"] or {}).get("quality_score", 0.0), c["coverage"], c["composite"]))
-    conv = max(0.0, min(1.0, 0.3 + 0.4 * best["coverage"] + 0.3 * max(0.0, best["composite"])))
+    conv = max(0.0, min(1.0, 0.3 + 0.4 * best["coverage"] + 0.3 * max(0.0, best["composite"]))) * _loss_haircut(book)
     return _decision("det_safety", best["symbol"], conv,
                      f"safest + best-covered ({best['coverage']:.0%}, q{(best['safety'] or {}).get('quality_score',0):+.1f}).",
                      equity, drawdown, considered)
 
 
+_BOOK_RULE = (
+    " Your `book` is a live decision input, not decoration — USE it: after consecutive losses or a rising "
+    "drawdown, demand higher-quality setups and cut conviction (smaller size) or stand down; when realized PnL "
+    "is positive and the book is healthy, you may press a strong setup. Read recent_exits for what just failed "
+    "and avoid repeating it."
+)
 _LEAD_DISCIPLINED = (
     "You are a god-tier crypto trader with two decades of experience. Edge and asymmetry over activity; "
     "sitting in cash when there is no real edge is a valid, frequent outcome. You are graded by TOTAL RETURN "
     "over a short window, with a hard max-drawdown DQ. Pick the single best long from the shortlist, or null."
+    + _BOOK_RULE
 )
 _LEAD_AGGRESSIVE = (
     "You are a god-tier crypto trader in ATTACK mode in a short ranked sprint. Capital in cash earns nothing; "
     "prefer placing at least one trade per day unless the entire tape is dangerous. Conviction IS position size: "
     "0.15-0.25 toehold, 0.40-0.60 solid, 0.75+ stake-your-reputation. Pick the single best long, or null only if "
     "the whole tape is a trap."
+    + _BOOK_RULE
 )
 _LEAD_SCHEMA = ' Return STRICT JSON: {"pick":"<SYMBOL or null>","conviction":0.0-1.0,"thesis":"...","key_risk":"..."}'
 
@@ -104,10 +152,11 @@ def arm_llm_lead(cards: list[dict], posture: str, equity: float, drawdown: float
     if not pool:
         return _decision("llm_lead", None, 0.0, "no eligible candidate.", equity, drawdown, considered)
     if not llm.available():
-        # graceful fallback to the deterministic top arm
-        d = arm_det_top(cards, posture, equity, drawdown, book)
-        d["arm"] = "llm_lead:fallback"
-        return d
+        # The LLM is the decisive factor — do NOT silently substitute the deterministic
+        # arm. Stand down and surface the fault (the daily-compliance path handles >=1/day).
+        return _decision("llm_lead:unavailable", None, 0.0,
+                         "LLM unavailable — standing down (no silent deterministic substitute).",
+                         equity, drawdown, considered, alert="llm_unavailable")
 
     style = get_settings().commit_style
     system = (_LEAD_AGGRESSIVE if style == "aggressive" else _LEAD_DISCIPLINED) + _LEAD_SCHEMA
@@ -122,9 +171,9 @@ def arm_llm_lead(cards: list[dict], posture: str, equity: float, drawdown: float
     try:
         out = llm.complete_json(system, user)
     except llm.LLMUnavailable:
-        d = arm_det_top(cards, posture, equity, drawdown, book)
-        d["arm"] = "llm_lead:fallback"
-        return d
+        return _decision("llm_lead:unavailable", None, 0.0,
+                         "LLM call failed — standing down (no silent deterministic substitute).",
+                         equity, drawdown, considered, alert="llm_unavailable")
 
     syms = {c["symbol"] for c in pool}
     pick = out.get("pick")
@@ -132,7 +181,7 @@ def arm_llm_lead(cards: list[dict], posture: str, equity: float, drawdown: float
     if pick in (None, "NONE", "NULL", "NO_TRADE", "NO TRADE", "") or pick not in syms:
         return _decision("llm_lead", None, 0.0, str(out.get("thesis") or "no clean trade")[:240],
                          equity, drawdown, considered, style=style)
-    conv = max(0.0, min(1.0, float(out.get("conviction") or 0.0)))
+    conv = max(0.0, min(1.0, float(out.get("conviction") or 0.0))) * _loss_haircut(book)
     rationale = str(out.get("thesis") or f"lead picked {pick}")[:240]
     return _decision("llm_lead", pick, conv, rationale, equity, drawdown, considered,
                      style=style, key_risk=out.get("key_risk"))

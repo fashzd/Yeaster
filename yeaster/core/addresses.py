@@ -28,7 +28,7 @@ def resolve_bsc_contract(symbol: str) -> Optional[str]:
         try:
             cache = json.loads(_CACHE_PATH.read_text())
             if sym in cache:
-                return cache[sym]
+                return cache[sym] or None   # "" is a cached MISS → None
         except Exception:
             cache = {}
     api_key = os.environ.get("CMC_API_KEY") or os.environ.get("CMC_MCP_API_KEY")
@@ -57,10 +57,14 @@ def resolve_bsc_contract(symbol: str) -> Optional[str]:
                 break
     except Exception:
         return None
-    if contract:
-        cache[sym] = contract
+    # Cache the result either way — a MISS ("") too, so an unresolvable ticker
+    # (e.g. an ambiguous "H") isn't re-queried over the network every tick.
+    cache[sym] = contract or ""
+    try:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         _CACHE_PATH.write_text(json.dumps(cache, indent=2))
+    except Exception:
+        pass
     return contract
 
 

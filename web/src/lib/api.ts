@@ -102,6 +102,9 @@ export type DaemonStatus = {
   remaining_seconds?: number | null;
   last_loop_at: string | null;
   last_error: string | null;
+  mainnet_unlocked?: boolean;
+  orphans_cleaned?: number | string;
+  flatten_result?: { flattened?: { symbol: string; sold: boolean }[]; automations_cancelled?: number };
 };
 export type Trending = {
   count: number;
@@ -137,20 +140,31 @@ export const api = {
     postJSON<ChatReply>("/api/chat", { messages, context }),
   manual: (body: object) => postJSON<any>("/api/agent/manual", body),
   tick: (body: object) => postJSON<any>("/api/agent/tick", body),
-  series: (symbol: string) => getJSON<Series>(`/api/market/series?symbol=${symbol}`),
+  series: (symbol: string, mode = "paper") => getJSON<Series>(`/api/market/series?symbol=${symbol}&mode=${mode}`),
   token: (symbol: string) => getJSON<ChatReply>(`/api/market/token/${symbol}`),
   readiness: () => getJSON<Readiness>("/api/readiness"),
-  wallet: () => getJSON<Wallet>("/api/wallet"),
+  // mode-scoped so paper and live books never mix (with the gate open, "auto"
+  // resolves to live everywhere, so we always pass an explicit backend/mode).
+  wallet: (backend = "paper") => getJSON<Wallet>(`/api/wallet?backend=${backend}`),
   walletReal: () => getJSON<Wallet>("/api/wallet?backend=cli"),
   overview: () => getJSON<Overview>("/api/market/overview"),
-  agent: () => getJSON<AgentStatus>("/api/agent"),
-  brackets: () => getJSON<Brackets>("/api/wallet/brackets"),
+  agent: (mode = "paper") => getJSON<AgentStatus>(`/api/agent?mode=${mode}`),
+  activity: (mode = "paper") => getJSON<{ activity: any[] }>(`/api/agent/activity?mode=${mode}`),
+  brackets: (backend = "paper") => getJSON<Brackets>(`/api/wallet/brackets?backend=${backend}`),
   proof: () => getJSON<ProofChain>("/api/proof?limit=12"),
   daemon: () => getJSON<DaemonStatus>("/api/daemon/status"),
   daemonStart: (body: object) => postJSON<DaemonStatus>("/api/daemon/start", body),
   daemonStop: (password?: string) => postJSON<DaemonStatus>("/api/daemon/stop", { password }),
+  daemonKill: (password?: string) => postJSON<DaemonStatus>("/api/daemon/kill", { password }),
   trending: () => getJSON<Trending>("/api/market/trending"),
   intelligence: () => getJSON<Intelligence>("/api/market/intelligence"),
+  x402: () => getJSON<any>("/api/x402"),
+  x402Teaser: () => getJSON<any>("/api/x402/alpha/teaser"),
+  x402Buy: (payment_tx: string) =>
+    fetch(`${API_BASE}/api/x402/alpha`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payment_tx }),
+    }).then(async (r) => ({ status: r.status, body: await r.json() })),
 };
 
 export type ThoughtStage =

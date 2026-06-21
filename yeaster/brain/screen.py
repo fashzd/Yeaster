@@ -106,6 +106,14 @@ def screen(live: dict[str, dict], hist: dict[str, list[dict]], universe,
         for s, tags in d.items():
             merged[s].update(tags)
     out = [{"symbol": s, "tags": sorted(t), "score": len(t)} for s, t in merged.items() if s in wl]
+    # Only surface tokens the agent can actually BUY, BRACKET and SELL — i.e. whose
+    # BSC contract resolves. This stops it ever entering an un-exitable token (e.g. an
+    # ambiguous ticker like "H"). Gated on a CMC key so offline/paper/test runs (which
+    # can't resolve contracts) keep every candidate.
+    from yeaster.core.settings import get_settings
+    if get_settings().cmc_api_key:
+        from yeaster.core import addresses
+        out = [c for c in out if addresses.has_address(c["symbol"])]
     out.sort(key=lambda x: (-x["score"], x["symbol"]))
     return out
 

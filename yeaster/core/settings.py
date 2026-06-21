@@ -62,6 +62,7 @@ class Settings:
     # ── Execution / wallet (Trust Wallet AgentKit) ───────────────────────
     twak_cli_bin: str
     twak_wallet_password: Optional[str]
+    swap_spender: Optional[str]  # YST_SWAP_SPENDER — router to approve sells to (so exits don't revert)
     bsc_testnet_wallet_address: Optional[str]
     agent_wallet: Optional[str]  # YST_AGENT_WALLET optional override
 
@@ -71,14 +72,18 @@ class Settings:
     commit_arm: str            # YST_COMMIT_ARM      → which commit policy
     exit_mode: str             # YST_EXIT_MODE       → "native" | "emulated"
     grade_cap: int             # YST_GRADE_CAP       → max candidates graded per tick
+    daily_compliance: bool     # YST_DAILY_COMPLIANCE → force >=1 trade/day (contest gate)
+    daily_cutoff_hour: int     # YST_DAILY_CUTOFF_HOUR → UTC hour after which the compliance trade may fire
     snapshot_topn: int         # YST_SNAPSHOT_TOPN
     wide_snapshot: bool        # YST_WIDE_SNAPSHOT
     guard_wide_allowlist: bool # YST_GUARD_WIDE_ALLOWLIST
     hist_refresh_seconds: int  # YST_HIST_REFRESH_SECONDS
     whale_concentration_limit_pct: float  # YST_WHALE_CONCENTRATION_LIMIT_PCT
+    min_notional_usd: float    # YST_MIN_NOTIONAL_USD → stand down rather than place a dust entry below this
 
     # ── Safety gates ─────────────────────────────────────────────────────
     approval_secret: str       # YST_APPROVAL_SECRET (HMAC permit key)
+    operator_password: Optional[str]  # YST_OPERATOR_PASSWORD — master gate for unlock + kill switch
     trade_chain_id: int        # YST_TRADE_CHAIN_ID  → 97 testnet / 56 mainnet
     mainnet: bool              # YST_MAINNET
     mainnet_confirm: Optional[str]  # YST_MAINNET_CONFIRM
@@ -107,6 +112,8 @@ class Settings:
             commit_style=(_env("YST_COMMIT_STYLE", "aggressive") or "aggressive").lower(),
             twak_cli_bin=_env("TWAK_CLI_BIN", "twak") or "twak",
             twak_wallet_password=_env("TWAK_WALLET_PASSWORD"),
+            # LiquidMesh BSC router observed in live swaps; override if TWAK routes elsewhere.
+            swap_spender=_env("YST_SWAP_SPENDER", "0x3d90f66b534dd8482b181e24655a9e8265316be9"),
             bsc_testnet_wallet_address=_env("BSC_TESTNET_WALLET_ADDRESS"),
             agent_wallet=_env("YST_AGENT_WALLET"),
             use_skills=_flag("YST_USE_SKILLS", False),
@@ -114,13 +121,17 @@ class Settings:
             commit_arm=_env("YST_COMMIT_ARM", "llm_lead") or "llm_lead",
             exit_mode=(_env("YST_EXIT_MODE", "native") or "native").lower(),
             grade_cap=_int("YST_GRADE_CAP", 12),
+            daily_compliance=_flag("YST_DAILY_COMPLIANCE", True),
+            daily_cutoff_hour=_int("YST_DAILY_CUTOFF_HOUR", 21),
             snapshot_topn=_int("YST_SNAPSHOT_TOPN", 150),
             wide_snapshot=_flag("YST_WIDE_SNAPSHOT", True),
             guard_wide_allowlist=_flag("YST_GUARD_WIDE_ALLOWLIST", True),
             hist_refresh_seconds=_int("YST_HIST_REFRESH_SECONDS", 21600),
             whale_concentration_limit_pct=_float("YST_WHALE_CONCENTRATION_LIMIT_PCT", 30.0),
+            min_notional_usd=_float("YST_MIN_NOTIONAL_USD", 1.2),
             approval_secret=_env("YST_APPROVAL_SECRET", "yeaster-dev-approval-secret")
             or "yeaster-dev-approval-secret",
+            operator_password=_env("YST_OPERATOR_PASSWORD"),
             trade_chain_id=_int("YST_TRADE_CHAIN_ID", 56),
             mainnet=_flag("YST_MAINNET", False),
             mainnet_confirm=_env("YST_MAINNET_CONFIRM"),

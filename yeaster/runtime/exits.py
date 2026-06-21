@@ -17,9 +17,25 @@ from yeaster.execution.approval import issue_from_guard_log
 from yeaster.execution.models import SwapRequest, SwapStatus
 from yeaster.guard.firewall import RuntimeState, YeasterGuard
 
-def _trailing_pct() -> float:
+def _trail_stop(pos: dict, peak: float) -> float:
+    """The trailing stop for ``pos`` given its running ``peak``.
+
+    Volatility-scaled when the preset is in ATR mode and the position carries an
+    ATR (``peak - atr_k * atr_entry``); otherwise the fixed-% fallback
+    (``peak * (1 - trailing_pct)``). The result is floored by the position's hard
+    stop (``entry * (1 - stop_pct)``) so the trail can only ever tighten upward —
+    risk per trade is never loosened.
+    """
     from yeaster.core.preset import active
-    return active()["exit"]["trailing_pct"]
+    ex = active()["exit"]
+    atr_entry = pos.get("atr_entry") or 0.0
+    if ex.get("trailing_mode") == "atr" and atr_entry > 0:
+        trail = peak - float(ex.get("atr_k", 3.0)) * atr_entry
+    else:
+        trail = peak * (1.0 - float(ex.get("trailing_pct", 0.03)))
+    entry = pos.get("entry_price") or 0.0
+    hard_stop = entry * (1.0 - float(ex.get("stop_pct", 0.08))) if entry else 0.0
+    return max(hard_stop, trail)
 
 
 def reconcile(state: dict, broker, by_sym, mandate: Mandate, twak_backend: str,
@@ -53,9 +69,9 @@ def reconcile(state: dict, broker, by_sym, mandate: Mandate, twak_backend: str,
                                "symbol": symbol, "reason": reason, "pnl_usd": round(pnl, 4)})
             continue
 
-        # trail the stop up
+        # trail the stop up (volatility-scaled; floored by the hard stop)
         peak = max(pos.get("peak_price", price), price)
-        new_stop = round(peak * (1.0 - _trailing_pct()), 10)
+        new_stop = round(_trail_stop(pos, peak), 10)
         if new_stop > stop:
             _retrail(state, broker, symbol, pos, new_stop, twak_backend)
             actions.append({"symbol": symbol, "action": "trail", "new_stop": new_stop})
@@ -66,23 +82,38 @@ def reconcile(state: dict, broker, by_sym, mandate: Mandate, twak_backend: str,
 
 
 def _exit_position(broker, state, symbol, pos, mandate: Mandate, twak_backend):
+    """Sell ``symbol`` → reserve. Retries on a transient revert (re-quotes a fresh
+    route) and ensures the sell allowance exists, because a freshly-bought token has
+    none and the first sell would otherwise revert — which would silently defeat the
+    stop / take-profit / trailing exit."""
     qty = pos.get("qty", 0.0)
     if qty <= 0:
         return None
-    try:
-        req = SwapRequest(from_asset=symbol, to_asset=DEFAULT_RESERVE, amount_in=qty,
-                          chain_id=_chain_id(), slippage_tolerance_bps=mandate.max_slippage_bps)
-        quote = broker.quote_swap(req)
-        ticket = OrderTicket(from_asset=symbol, to_asset=DEFAULT_RESERVE, amount_pct=1.0,
-                             confidence=1.0, kind="exit", thesis="bracket exit")
-        guard = YeasterGuard(mandate, safe_mode_latched=state.get("safe_mode_latched", False))
-        log = guard.evaluate(ticket, RuntimeState(requested_slippage_bps=quote.expected_slippage_bps))
-        if log.final_decision.value != "EXECUTED":   # de-risk should always pass, but be safe
-            return None
-        token = issue_from_guard_log(quote, log.model_dump())
-        return broker.execute_approved_swap(quote, token)
-    except Exception:
-        return None
+    from yeaster.execution import twak as _twak
+    last = None
+    for attempt in range(2):
+        try:
+            req = SwapRequest(from_asset=symbol, to_asset=DEFAULT_RESERVE, amount_in=qty,
+                              chain_id=_chain_id(), slippage_tolerance_bps=mandate.max_slippage_bps)
+            quote = broker.quote_swap(req)
+            ticket = OrderTicket(from_asset=symbol, to_asset=DEFAULT_RESERVE, amount_pct=1.0,
+                                 confidence=1.0, kind="exit", thesis="bracket exit")
+            guard = YeasterGuard(mandate, safe_mode_latched=state.get("safe_mode_latched", False))
+            log = guard.evaluate(ticket, RuntimeState(requested_slippage_bps=quote.expected_slippage_bps))
+            if log.final_decision.value != "EXECUTED":   # de-risk should always pass, but be safe
+                return None
+            token = issue_from_guard_log(quote, log.model_dump())
+            receipt = broker.execute_approved_swap(quote, token)
+            if receipt and receipt.status == SwapStatus.EXECUTED:
+                return receipt
+            last = receipt
+        except Exception:  # noqa: BLE001 — revert/transient; ensure approval then retry once
+            last = None
+        try:
+            _twak.ensure_sell_approval(symbol, _chain_id())
+        except Exception:
+            pass
+    return last
 
 
 def _retrail(state, broker, symbol, pos, new_stop, twak_backend) -> None:

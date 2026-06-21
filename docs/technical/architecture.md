@@ -47,10 +47,18 @@ Two‑step, self‑custodial, via Trust Wallet AgentKit:
 2. **approval** (`approval.py`) → an HMAC‑signed, quote‑bound permit, mintable only
    from an EXECUTED guard decision (replay/forgery/expiry‑proof).
 3. **execute** → real swap (CLI) or paper sim. Token symbols resolve to canonical
-   **BSC contract addresses** (`core/addresses.py`, CMC‑sourced, cached).
-4. **brackets** (`brackets.py`) — native stop/TP limit orders, reconcile on fill,
-   trailing ratchet (`runtime/exits.py`).
-5. **x402** (`x402.py`) — HMAC‑signed micropayment middleware (off by default).
+   **BSC contract addresses** (`core/addresses.py`, CMC‑sourced, cached). A sell
+   **approval is issued at entry** (`ensure_sell_approval`) so the later stop/TP/trail
+   sell can't revert on a zero allowance.
+4. **brackets** (`brackets.py`) — native stop/TP limit orders selling into the funded
+   **USDT** reserve, reconcile on fill, an **ATR‑3× volatility‑scaled trailing ratchet**
+   (`runtime/exits.py`), plus `cancel_orphans` / `cancel_all` for the unlock/kill controls.
+5. **wallet truth** — the live wallet read merges an on‑chain **Multicall3 `balanceOf`
+   sweep** over the resolved universe (`twak.py::_merge_onchain_holdings`), so it shows
+   **every held token**, not just TWAK's tracked set; swept tokens are priced from CMC
+   (never the mock oracle) or left unvalued.
+6. **x402** (`x402.py`) — sells the daily alpha for an on‑chain‑verified USDT
+   micropayment (off by default). See **`x402.md`**.
 
 ## Proof ledger (`yeaster/proof/ledger.py`)
 
@@ -61,10 +69,18 @@ hash. `verify_chain()` re‑checks the links.
 ## Runtime (`yeaster/runtime/`)
 
 - `tick.py` — `run_tick()` (the spine: snapshot → exits → think → guard → execute →
-  proof) and `run_manual()` (operator swaps).
-- `daemon.py` — the autonomous loop with cadence, auto‑resume, **timed committed
-  runs**, lock, and a password kill switch.
-- `state.py` — peak equity, drawdown, position book, Safe‑Mode latch, PnL/win‑rate.
+  proof), `_execute_ticket()` (shared entry path), and the **≥1‑trade/day compliance**
+  fallback. The commit **LLM is the decisive factor** — it stands down (no silent
+  deterministic substitute) when unavailable.
+- `daemon.py` — the autonomous loop with cadence (first tick immediate, then **2h live /
+  120s paper**), auto‑resume, **timed committed runs**, a password **unlock** (`stop` →
+  cleans orphaned automations, keeps brackets) and a password **kill switch** (`kill` →
+  `flatten.py` sells all to USDT + cancels all).
+- `state.py` — peak equity, drawdown, position book, Safe‑Mode latch, PnL/win‑rate,
+  **consecutive‑loss streak + daily realized PnL** (fed to the commit LLM). Paper and
+  live are **isolated** into separate files (`agent_state_{paper,live}.json`), keyed by
+  the resolved backend — the two books never mix.
+- `flatten.py` — emergency flatten‑to‑USDT used by the kill switch.
 
 ## API (`yeaster/api/`)
 

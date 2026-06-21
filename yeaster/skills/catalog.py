@@ -122,14 +122,16 @@ def _brackets(params: dict[str, Any]) -> dict[str, Any]:
         "take_profit_price": round(entry * (1 + tp_pct), 10),
         "stop_pct": stop_pct, "tp_pct": tp_pct, "trailing_pct": trail,
         "risk_reward": round(tp_pct / stop_pct, 2) if stop_pct else None,
-        "note": "let-winners-run calibration (wide stop, wider target, trailing ratchet)",
+        "note": "let-winners-run calibration; the live engine trails at ATR-3x (trailing_pct here is the "
+                "fixed fallback used when a coin lacks enough history for ATR)",
     }
 
 
 BRACKET_PLANNER = register(Skill(
     unique_name="yeaster_bracket_planner",
     description="Plan native exit brackets for a long entry: stop-loss, take-profit and trailing "
-                "stop using the finalized let-winners-run calibration (default 8% / 16% / 3%).",
+                "stop using the finalized let-winners-run calibration (default 8% stop / 40% TP; the live "
+                "engine trails at ATR-3x).",
     input_schema={"type": "object", "required": ["entry_price"], "properties": {
         "entry_price": {"type": "number", "exclusiveMinimum": 0},
         "stop_pct": {"type": "number"}, "tp_pct": {"type": "number"}, "trailing_pct": {"type": "number"},

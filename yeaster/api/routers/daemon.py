@@ -35,8 +35,18 @@ def start(cfg: DaemonStart) -> dict:
 
 @router.post("/stop")
 def stop(req: DaemonStop) -> dict:
+    """Graceful unlock — halt + sweep orphaned automations, keep protective brackets."""
     try:
         return DAEMON.stop(password=req.password)
+    except KillSwitchError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.post("/kill")
+def kill(req: DaemonStop) -> dict:
+    """Emergency kill switch — halt + flatten every open position to USDT + cancel all automations."""
+    try:
+        return DAEMON.kill(password=req.password)
     except KillSwitchError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 

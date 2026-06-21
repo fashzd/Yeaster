@@ -69,6 +69,7 @@ def _run(snapshot, hist: dict[str, list[dict]], *, posture: str, equity: float, 
 
     result = _result(posture, _top(cards, 8), v["blocked"], decision.get("ticket"), v, decision["considered"],
                      decision.get("rationale", ""), decision=decision, refuted=v["refuted"])
+    result["survivors"] = v["survivors"]   # vetted cards — reused by the >=1/day compliance path
     yield "result", result
 
 

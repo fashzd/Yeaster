@@ -79,14 +79,62 @@ class Daemon:
             self._thread.start()
             return self.status()
 
+    def _check_password(self, cfg: dict[str, Any], password: Optional[str], *, require: bool = False) -> None:
+        """Gate unlock/kill. A correct password is the active run's kill password OR the
+        configured operator password (master).
+
+        - The **kill switch** (``require=True``) is gated whenever an operator password
+          is configured — it's destructive, so never unprotected.
+        - **Unlocking a committed (locked) run** is gated by that run's kill password.
+        - A casual stop of an *unlocked* loop (the power toggle) needs no password.
+        """
+        try:
+            from yeaster.core.settings import get_settings
+            op = get_settings().operator_password
+        except Exception:
+            op = None
+        kill_hash = cfg.get("kill_hash") if cfg.get("locked") else None
+        need = bool(kill_hash) or (require and bool(op))
+        if not need:
+            return
+        if password and ((op and password == op) or (kill_hash and _hash(password) == kill_hash)):
+            return
+        raise KillSwitchError("operator/kill-switch password required")
+
     def stop(self, password: Optional[str] = None) -> dict[str, Any]:
+        """Graceful unlock: halt the loop and sweep ORPHANED automations, but keep
+        protective brackets on open positions (they stay live on-chain)."""
         cfg = _load()
-        if cfg.get("locked") and cfg.get("kill_hash"):
-            if not password or _hash(password) != cfg["kill_hash"]:
-                raise KillSwitchError("kill-switch password required to halt a locked run")
+        self._check_password(cfg, password)
         self._stop.set()
+        backend = cfg.get("twak_backend", "auto")
+        try:
+            from yeaster.execution import brackets
+            from yeaster.runtime import state as state_mod
+            tracked = list(state_mod.load(state_mod.state_mode(backend)).get("positions", {}).keys())
+            cfg["orphans_cleaned"] = brackets.cancel_orphans(tracked, backend)
+        except Exception as exc:  # noqa: BLE001 — never block the halt on cleanup
+            cfg["orphans_cleaned"] = f"error: {exc}"
         cfg.update({"enabled": False, "running": False, "locked": False, "run_until": None,
                     "kill_hash": None, "stopped_at": _iso(_now())})
+        _save(cfg)
+        return cfg
+
+    def kill(self, password: Optional[str] = None) -> dict[str, Any]:
+        """Emergency kill switch: halt, FLATTEN every open position to USDT, and
+        cancel ALL automations. ALWAYS password-gated (operator password or the
+        locked run's kill password). Works on paper and live."""
+        cfg = _load()
+        self._check_password(cfg, password, require=True)   # kill is always gated when an operator pw is set
+        self._stop.set()
+        backend = cfg.get("twak_backend", "auto")
+        try:
+            from yeaster.runtime import flatten as flatten_mod
+            cfg["flatten_result"] = flatten_mod.flatten_all(backend)
+        except Exception as exc:  # noqa: BLE001
+            cfg["flatten_result"] = {"error": str(exc)}
+        cfg.update({"enabled": False, "running": False, "locked": False, "run_until": None,
+                    "kill_hash": None, "killed_at": _iso(_now())})
         _save(cfg)
         return cfg
 
@@ -101,6 +149,11 @@ class Daemon:
         cfg = _load()
         cfg["running"] = bool(self._thread and self._thread.is_alive())
         cfg.pop("kill_hash", None)  # never expose the hash
+        try:
+            from yeaster.core.settings import get_settings
+            cfg["mainnet_unlocked"] = get_settings().mainnet_unlocked
+        except Exception:
+            cfg["mainnet_unlocked"] = False
         ru = cfg.get("run_until")
         if ru:
             try:

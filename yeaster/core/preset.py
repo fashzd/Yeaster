@@ -20,8 +20,28 @@ MOMENTUM_DIMS = {
 }
 
 # Let-winners-run exit calibration (the actual bracket levels, distinct from the
-# 3.5% sizing risk-divisor): wide stop, wider target, trailing ratchet.
-MOMENTUM_EXIT = {"stop_pct": 0.08, "tp_pct": 0.16, "trailing_pct": 0.03}
+# 3.5% sizing risk-divisor): wide stop, wider target, volatility-scaled trail.
+#
+# Trailing is volatility-scaled (ATR): the trail rides `atr_k * ATR(atr_period)`
+# under the running peak instead of a flat percent, so each coin gets breathing
+# room proportional to its own daily range (a flat 3% clipped every winner on
+# daily-bar noise — see data/backtests/reports/CONCLUSION-trailing.md). The hard
+# `stop_pct` is always the floor; `trailing_pct` is the fixed-% fallback used when
+# an ATR value is unavailable (e.g. a brand-new listing with too little history).
+#
+# Take-profit is a WIDE backstop (40%), not a strangle: a real-OHLC backtest over
+# 135 tokens showed a tight 16% target converting the strategy's asymmetric runners
+# into capped scratch trades (it turned a +46% trending half into a loss). A wide TP
+# + the ATR trail lets winners run while still guaranteeing an exit on a parabolic
+# spike. (A no-TP variant scored higher only by running 5x concentration into a 33%
+# drawdown — over the 30% competition DQ line — so it is deliberately NOT used.)
+MOMENTUM_EXIT = {
+    "stop_pct": 0.08, "tp_pct": 0.40,
+    "trailing_mode": "atr",     # "atr" | "fixed"
+    "atr_k": 3.0,               # trail distance = atr_k * ATR(atr_period)
+    "atr_period": 14,
+    "trailing_pct": 0.03,       # fallback only, when ATR is unavailable
+}
 
 # Firewall rails.
 MOMENTUM_GUARD = {"max_trade_pct": 0.12, "max_position_pct": 0.30,
@@ -31,8 +51,9 @@ MOMENTUM: dict[str, Any] = {
     "id": "yeaster-momentum",
     "name": "Yeaster Momentum",
     "thesis": "Finalized autonomous strategy — hunts breakouts & trending runners, decided by the bold "
-              "lead AI, protected by native auto-brackets.",
-    "stats": "Runner edge backtested +41.6%/30d (67% win, 1-yr walk-forward).",
+              "lead AI, protected by native auto-brackets with a volatility-scaled trailing stop.",
+    "stats": "Exit bracket re-tuned on 135-token real-OHLC backtest: ATR-3x trail + wide 40% backstop "
+             "(the old fixed-3% trail clipped every winner; ATR scales the trail to each coin's volatility).",
     "detectors": MOMENTUM_DETECTORS,
     "score_dims": MOMENTUM_DIMS,
     "commit_arm": "llm_lead",

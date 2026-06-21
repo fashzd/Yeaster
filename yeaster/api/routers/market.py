@@ -99,7 +99,7 @@ def token(symbol: str) -> dict:
 
 
 @router.get("/series")
-def series(symbol: str = Query(...), points: int = Query(72, ge=12, le=240)) -> dict:
+def series(symbol: str = Query(...), points: int = Query(72, ge=12, le=240), mode: str = "paper") -> dict:
     """A recent price path for the symbol + the agent's entry markers (for charts)."""
     import hashlib
     import math
@@ -119,7 +119,7 @@ def series(symbol: str = Query(...), points: int = Query(72, ge=12, le=240)) -> 
         pts.append({"t": i, "price": round(max(p, cur * 0.5), 8)})
     pts[-1]["price"] = round(cur, 8)
 
-    st = state_mod.load()
+    st = state_mod.load(mode)
     pos = st.get("positions", {}).get(sym)
     markers = []
     if pos:

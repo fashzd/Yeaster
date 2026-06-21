@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Activity, Flame, Radar, Gauge } from "lucide-react";
-import TradingViewChart from "@/components/TradingViewChart";
+import TokenChart from "@/components/TokenChart";
 import { api, type Intelligence, type Trending } from "@/lib/api";
 
 export default function IntelligencePage() {
@@ -36,7 +36,7 @@ export default function IntelligencePage() {
           <Link href="/" className="blob blob-pill grid h-10 w-10 place-items-center text-soft"><ArrowLeft size={17} /></Link>
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Market Intelligence</h1>
-            <p className="text-mute text-[11px]">CMC Agent Hub · Trust Wallet trending · TradingView</p>
+            <p className="text-mute text-[11px]">CMC Agent Hub · Trust Wallet trending · live price charts</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -72,11 +72,11 @@ export default function IntelligencePage() {
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="blob blob-pill grid h-8 w-8 place-items-center"><Activity size={15} className="text-[var(--aqua)]" /></div>
-              <h3 className="text-[13px] font-medium">{symbol} · TradingView</h3>
+              <h3 className="text-[13px] font-medium">{symbol} · price</h3>
             </div>
-            <span className="text-mute mono text-[10px]">BINANCE:{symbol}USDT</span>
+            <span className="text-mute mono text-[10px]">CMC · {symbol}/USD</span>
           </div>
-          <TradingViewChart symbol={symbol} height={420} />
+          <TokenChart symbol={symbol} height={420} />
         </div>
       </section>
 

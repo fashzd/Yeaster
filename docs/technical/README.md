@@ -16,6 +16,8 @@ doc and the code ever disagree, trust the code.
    and the backend matrix.
 4. **[`operations.md`](./operations.md)** — install, run, drive it, test it, and take
    it live safely; observability.
+5. **[`x402.md`](./x402.md)** — how the agent **sells its daily alpha** for an
+   on-chain-verified USDT micropayment (the x402 paywall).
 
 Also worth a look: **[`../../skills/`](../../skills/)** for the Track-2 strategy
 skills, and `../AGENTS.md` for the build ledger.

@@ -35,9 +35,9 @@ class ManualRequest(BaseModel):
 
 
 @router.get("")
-def status() -> dict:
+def status(mode: str = "paper") -> dict:
     s = get_settings()
-    st = state_mod.load()
+    st = state_mod.load(mode)
     return {
         "agent": "yeaster",
         "commit_arm": s.commit_arm,
@@ -58,10 +58,18 @@ def status() -> dict:
 
 
 @router.get("/positions")
-def positions() -> dict:
-    st = state_mod.load()
+def positions(mode: str = "paper") -> dict:
+    st = state_mod.load(mode)
     return {"positions": st.get("positions", {}), "safe_mode_latched": st.get("safe_mode_latched", False),
             "peak_equity_usd": st.get("peak_equity_usd", 0.0)}
+
+
+@router.get("/activity")
+def activity(limit: int = 20, mode: str = "paper") -> dict:
+    """Unified trade feed (entries + exits from manual / tick / autonomous) for the
+    given mode — the chat renders new events as cards. Paper and live feeds are separate."""
+    st = state_mod.load(mode)
+    return {"activity": st.get("recent_activity", [])[-limit:]}
 
 
 def _reject_if_locked() -> None:

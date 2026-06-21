@@ -17,15 +17,25 @@ from yeaster.execution.twak import TwakBroker
 from yeaster.market import cmc, skills
 from yeaster.runtime import state as state_mod
 
+
+def _manual_ok(symbol: str) -> bool:
+    """A symbol allowed for a MANUAL swap: any whitelisted token, plus BNB (native).
+    BNB is permitted for manual swaps + approval only — the autonomous loop can never
+    pick it (it isn't in the momentum UNIVERSE)."""
+    s = symbol.upper()
+    return is_whitelisted(s) or s == "BNB"
+
+
 PERSONA = (
     "You are Yeaster, an autonomous momentum trading agent on BNB Smart Chain, talking to your operator in "
     "a compact chat UI. You reason in four passes — SCREEN (scout candidates), GRADE (rate them across "
     "technicals, derivatives, whale flow, sector rotation, unlocks, social + an always-on scam/honeypot "
     "safety axis), VET (adversarial critic + hard safety blocks), COMMIT (a bold lead AI picks one and "
-    "sizes it). You execute via Trust Wallet self-custody with native auto-brackets (8% stop, 16% "
-    "take-profit, 3% trailing), behind a non-bypassable firewall. You can ONLY trade the 148 "
-    "competition-whitelisted tokens (BNB/BTCB excluded). You run on paper until the operator opens the "
-    "mainnet gate.\n\n"
+    "sizes it). You execute via Trust Wallet self-custody with native auto-brackets (8% stop, 40% "
+    "take-profit, a volatility-scaled ATR-3x trailing stop), behind a non-bypassable firewall. The "
+    "autonomous loop ONLY trades the 148 competition-whitelisted tokens (BNB/BTCB excluded); BNB is "
+    "allowed for manual swaps + approval only. You run on paper until the operator opens the mainnet "
+    "gate.\n\n"
     "STYLE: `reply` is 1-3 SHORT sentences — answer the question, no lectures, no capability lists. Put "
     "analytical content (numbers, comparisons, reads) into `pack.rows` (3-7 short label/value rows + a one-"
     "line `read`), NOT into prose. Greetings get a friendly one-liner, pack=null. Be a sharp analyst, honest "
@@ -65,7 +75,7 @@ def _live_context(context: dict) -> dict[str, Any]:
                          "tokens": [{"symbol": b.symbol, "balance": b.balance, "value_usd": b.value_usd} for b in pf.balances]}
     except Exception:
         pass
-    st = state_mod.load()
+    st = state_mod.load("live" if context.get("live") else "paper")
     if st.get("positions"):
         ctx["positions"] = list(st["positions"].keys())
     return ctx
@@ -80,15 +90,16 @@ def respond(messages: list[dict], context: Optional[dict] = None) -> dict[str, A
     m = re.match(r"^buy\s+(\d+(?:\.\d+)?)\s*%\s+\$?([a-z0-9]{2,12})$", low)
     if m:
         sym = m.group(2).upper()
-        if context.get("guard_enabled", True) and not is_whitelisted(sym):
-            return {"reply": f"{sym} isn't on the 148-token whitelist — switch Guard OFF to trade it, or name a whitelisted symbol."}
-        return {"reply": f"Placing a {m.group(1)}% buy into {sym}.",
-                "action": {"type": "manual_trade", "side": "buy", "symbol": sym, "pct": float(m.group(1)) / 100.0}}
+        if context.get("guard_enabled", True) and not _manual_ok(sym):
+            return {"reply": f"{sym} isn't on the 148-token whitelist — switch Guard OFF to trade it, or name a whitelisted symbol (BNB is allowed for manual swaps)."}
+        return {"reply": f"Proposed: buy {m.group(1)}% into {sym}. Review and approve to execute.",
+                "action": {"type": "manual_trade_pending", "side": "buy", "symbol": sym, "pct": float(m.group(1)) / 100.0}}
 
     m = re.match(r"^sell\s+(?:all\s+)?\$?([a-z0-9]{2,12})$", low)
     if m:
-        return {"reply": f"Selling {m.group(1).upper()} back to the reserve.",
-                "action": {"type": "manual_trade", "side": "sell", "symbol": m.group(1).upper(), "pct": 1.0}}
+        sym = m.group(1).upper()
+        return {"reply": f"Proposed: sell {sym} back to the reserve. Review and approve to execute.",
+                "action": {"type": "manual_trade_pending", "side": "sell", "symbol": sym, "pct": 1.0}}
 
     if re.search(r"\bguard\s+(on|off)\b", low):
         on = "on" in re.search(r"\bguard\s+(on|off)\b", low).group(1)
@@ -140,10 +151,11 @@ def respond(messages: list[dict], context: Optional[dict] = None) -> dict[str, A
         return {"reply": reply, "pack": tp.get("pack")}
     if action and action.get("type") == "market_overview":
         return {"reply": reply, "pack": _market_pack()}
-    if action and action.get("type") == "manual_trade" and not context.get("guard_enabled", True) is False:
+    if action and action.get("type") == "manual_trade":
         sym = str(action.get("symbol") or action.get("to_asset") or "").upper()
-        if sym and (is_whitelisted(sym) or not context.get("guard_enabled", True)):
-            return {"reply": reply, "action": {"type": "manual_trade", "side": "buy",
+        if sym and (not context.get("guard_enabled", True) or _manual_ok(sym)):
+            # never auto-execute — surface as a pending intent the operator must approve
+            return {"reply": reply, "action": {"type": "manual_trade_pending", "side": "buy",
                     "symbol": sym, "pct": float(action.get("amount_pct") or 0.05)}}
     if action and action.get("type") in ("run_cycle", "guard_toggle", "mode_toggle", "autonomy_toggle"):
         return {"reply": reply, "action": action}
