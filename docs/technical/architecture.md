@@ -98,11 +98,12 @@ it never HTTP‑calls the skill endpoints, so they add no latency to the trade l
 
 Next.js "Liquid Flow" control room: a fused **terminal** (live SSE reasoning) +
 **chat**, dashboard blobs (TWAK wallet/PnL, brackets, CMC movers, Fear&Greed, proof),
-a **settings** modal (committed runs / kill switch), and a **/intelligence** page
-(regime, readiness screener, TWAK trending, TradingView).
+a **settings** modal (committed runs / kill switch), an **/intelligence** page
+(regime, readiness screener, TWAK trending, CMC‑backed charts), and judge‑facing
+**/learn** and **/alpha** (x402 buy‑alpha) pages.
 
 ## Tech stack
 
 Python 3.10+ · FastAPI · pydantic v2 · requests · Next.js 14 / React 18 / Tailwind 4 ·
-lightweight‑charts + TradingView · CoinMarketCap Agent Hub · Trust Wallet AgentKit ·
+lightweight‑charts (CMC‑backed) · CoinMarketCap Agent Hub · Trust Wallet AgentKit ·
 BNB Smart Chain · OpenAI/Anthropic (swappable).

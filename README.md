@@ -80,7 +80,7 @@ An autonomous agent moving real funds must **never be trusted to police itself**
 8. **Paper by default, mainnet behind a double-gate.** No real funds move until both `YST_MAINNET=1` and `YST_MAINNET_CONFIRM=I-UNDERSTAND-LIVE-FUNDS` are set. Everything above is exercised on paper / BSC testnet first.
 9. **Approve-at-entry, so exits can never silently fail.** The instant a token is bought, the agent approves it for selling. Without this, a freshly-bought token's *first* stop / take-profit / trail would revert (no router allowance) — protection that only *looks* real. We caught this in a live test and made the approval part of entry.
 10. **Only tokens it can actually exit.** A coin is tradeable only if its on-chain contract resolves; un-resolvable tickers are dropped from the screen. The agent can never enter something it couldn't later sell.
-11. **The LLM is decisive — or it stands down.** The committing LLM is the decision-maker; if it's unavailable the agent **stands down** rather than silently falling back to a weaker rule. A separate deterministic *compliance* trade still guarantees ≥1 trade/day so the contest gate is never missed.
+11. **The LLM is decisive — or it stands down.** The committing LLM is the decision-maker; if it's unavailable the agent **stands down** rather than silently falling back to a weaker rule. A separate deterministic *compliance* trade still guarantees ≥1 trade/day so the contest gate is never missed — and it **sizes up to clear the minimum trade value** (`YST_MIN_NOTIONAL_USD`), while no trade, organic or compliance, is ever placed below that floor.
 12. **Authenticated kill power + manual approval.** Unlock and the **kill switch (flatten-to-USDT)** always require an operator password. Manual swaps surface a **trade intent you must approve** before anything executes — and **BNB** is allowed for manual swaps only, never an autonomous trade.
 
 ### The three sponsors, fused into one decision
@@ -109,7 +109,7 @@ Yeaster's brain doesn't stay locked inside Yeaster. Each reasoning stage is also
 
 ## 🛰️ Liquid Flow — the control room
 
-A single fused **agent terminal + chat**, glass dashboards, and a **Market Intelligence** page (CMC regime · Fear & Greed gauge · readiness screener · TWAK trending · embedded TradingView). Watch the agent reason live, `$SYM` any token for a deep-dive card with inline charts, fire a manual buy/sell, flip the guard or trading mode, or kick a cycle by hand.
+A single fused **agent terminal + chat**, glass dashboards, and a **Market Intelligence** page (CMC regime · Fear & Greed gauge · readiness screener · TWAK trending · CMC-backed price charts). Watch the agent reason live, `$SYM` any token for a deep-dive card with inline charts, fire a manual buy/sell, flip the guard or trading mode, or kick a cycle by hand. The live wallet shows **every token actually held on-chain** (a Multicall3 balance sweep, valued from CMC). Two judge-facing pages round it out: **/learn** (how the agent works) and **/alpha** (buy the daily pick over x402).
 
 ---
 
@@ -129,7 +129,7 @@ yeaster/
 web/             Next.js "Liquid Flow" control room (terminal + chat + dashboards + /intelligence)
 skills/          judge-facing skill docs + machine manifest
 docs/technical/  the full documentation set (start here)
-tests/           pytest suite (36 tests)
+tests/           pytest suite (79 tests)
 ```
 
 ## 🚀 Quickstart

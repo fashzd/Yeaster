@@ -41,8 +41,10 @@ today**; where these pages and the code ever diverge, the code is authoritative.
   that lock the chat and can be halted only with a **password kill switch**.
 - Grade tokens across 8 CMC‑sourced dimensions + a separate safety axis.
 - Enforce a 148‑token whitelist, size/slippage/drawdown caps, and token‑safety.
-- Place real swaps + native stop/TP/trailing brackets via Trust Wallet.
+- Place real swaps + native brackets via Trust Wallet (**8% stop · 40% TP · ATR‑3× trailing**).
+- Read its **true on‑chain holdings** — a Multicall3 balance sweep surfaces every token held (not just TWAK's tracked set), valued from CMC.
 - Be **PnL‑aware** — realized/unrealized PnL, win‑rate, recent exits feed the decision.
+- **Sell its own daily alpha** for an on‑chain‑verified USDT micropayment (x402).
 - Expose its stages as **5 reusable Track‑2 skills** (`/api/skills`).
 - Drive a Liquid‑Flow control room (terminal + chat + dashboards + market intelligence).
 

@@ -190,8 +190,9 @@ audit clean. Docs (README, technical/*, bracket skill, .env.example) updated + a
   swapped-in tokens like the first-fill CAKE). Priced from **CMC only** (never the mock oracle — that gave a
   FLOKI dust bag a ~$50k pseudo-value); un-priceable tokens shown unvalued. Cached 45s; `YST_WALLET_SWEEP`.
 - **Bug fixes from the readiness audit:** (1) `build_bracket_specs` reserve default `USDC → USDT` so on-chain
-  stop/TP legs sell into the funded reserve; (2) new `YST_MIN_NOTIONAL_USD` (default $5) dust floor — the brain
-  stands down rather than place a sub-minimum entry eaten by gas.
+  stop/TP legs sell into the funded reserve; (2) new `YST_MIN_NOTIONAL_USD` (**$1.20 contest minimum**) — a hard
+  guard on the actual USDT spent blocks any sub-minimum trade; the mandatory ≥1/day compliance trade **sizes up**
+  to clear it (~$1.56) regardless of wallet size, instead of the old tiny conviction-floor size.
 - **Live cadence** 2h (7200s) after an immediate first tick; paper 120s. Chat persists across refresh
   (localStorage, memory-aware) + clear button; trade cards across autonomous/tick/manual; blinking online dot.
 - **Docs:** new `docs/technical/x402.md` (full alpha-sale payment spec); configuration.md (min-notional,

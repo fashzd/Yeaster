@@ -32,7 +32,8 @@ python scripts/paper_cycle.py            # snapshot → think → guard → pape
 - **Run one tick:** `POST /api/agent/tick {"cmc_backend":"mock","twak_backend":"paper","arm":"det_safety"}`
 - **Watch it think (SSE):** `POST /api/agent/tick/stream`
 - **Manual swap:** `POST /api/agent/manual {"to_asset":"CAKE","amount_pct":0.05}`
-- **Autonomous loop:** `POST /api/daemon/start {"cadence_seconds":120}`; `…/status`
+- **Autonomous loop:** `POST /api/daemon/start {"cadence_seconds":120}`; `…/status`. First tick fires
+  immediately, then waits the cadence — the control room uses **7200s (2h) live, 120s paper**.
 - **Committed timed run:** `POST /api/daemon/start {"run_hours":4,"lock":true,"kill_password":"…","live":true}`
   → the chat locks (overrides → HTTP 423).
 - **Unlock (graceful):** `POST /api/daemon/stop {"password":"…"}` → halts the loop, **sweeps orphaned
@@ -52,7 +53,9 @@ python scripts/paper_cycle.py            # snapshot → think → guard → pape
 - The commit **LLM is the decisive factor** — if it's unavailable the tick **stands down** (surfaced in
   `last_error`), never silently substituting a deterministic pick.
 - A **daily compliance** fallback (`YST_DAILY_COMPLIANCE`, after `YST_DAILY_CUTOFF_HOUR` UTC) places ONE
-  safe, minimum-size trade if none happened that day — so the contest's ≥1-trade/day gate is never missed.
+  safe trade if none happened that day — so the contest's ≥1-trade/day gate is never missed. It **sizes up to
+  clear the minimum trade value** (`YST_MIN_NOTIONAL_USD`, default $1.20); no trade — organic or compliance —
+  ever executes below that floor (a hard guard on the actual USDT spent).
 
 ## Tests
 
@@ -95,10 +98,13 @@ switch to flatten. The mainnet gate is read from the **server's** environment.
 ## Observability
 
 - `GET /api/agent` — equity, drawdown, PnL, win‑rate, positions, recent exits.
-- `GET /api/wallet` (book) · `GET /api/wallet?backend=cli` (real self‑custody wallet) · `GET /api/wallet/brackets`.
+- `GET /api/wallet?backend=paper` (paper book) · `GET /api/wallet?backend=cli` (real self‑custody wallet —
+  shows **every on‑chain holding** via the Multicall3 sweep, valued from CMC) · `GET /api/wallet/brackets`.
+- Read endpoints take a `mode`/`backend` (`paper`|`live`) — paper and live books never mix.
 - `GET /api/proof` — the chain tail + `verified` flag.
 - `GET /api/x402` — micropayment settlement trail (when enabled).
-- `data/` (gitignored): `state/` (agent + daemon), `proof/` (chain), `wallet/` (paper + caches), `snapshots/`.
+- `data/` (gitignored): `state/` (**per‑mode** `agent_state_{paper,live}.json` + daemon), `proof/` (chain),
+  `wallet/` (paper + caches), `snapshots/`.
 
 ## Safety notes
 
